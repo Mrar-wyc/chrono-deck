@@ -49,8 +49,7 @@ export const ENEMIES: EnemyDef[] = [
           { t: 'block', amount: 3 }
         ]
       }
-    ],
-    flavor: '大失序掉下来的渣，扎人却不好抓。'
+    ]
   }),
   defineEnemy({
     id: 'lagging',
@@ -79,8 +78,7 @@ export const ENEMIES: EnemyDef[] = [
           { t: 'damage', amount: 7 }
         ]
       }
-    ],
-    flavor: '它总是慢半拍，但从不缺席。'
+    ]
   }),
   defineEnemy({
     id: 'rusher',
@@ -107,8 +105,7 @@ export const ENEMIES: EnemyDef[] = [
           { t: 'damage', amount: 9 }
         ]
       }
-    ],
-    flavor: '它把整条时间轴往自己那边拽。'
+    ]
   }),
   defineEnemy({
     id: 'corroder',
@@ -144,55 +141,55 @@ export const ENEMIES: EnemyDef[] = [
         av: 80,
         effects: [{ t: 'damage', amount: 9, times: 2 }]
       }
-    ],
-    flavor: '锈一旦吃进齿轮，转得越用力，掉得越快。'
+    ]
   }),
   defineEnemy({
     id: 'disjoiner',
     name: '失序使',
     /*
-     * 血量从 150 提到 180，伤害反而回落到初始值。
-     * 加伤害的版本实测胜率从 80% 一步跌到 0% —— 首领战是「抢在积累伤害之前
-     * 打死它」的赛跑，加伤害会直接跨过那个阈值。拉长战斗则让压力平摊到更多回合，
-     * 同时给玩家的格挡留出发挥作用的空间，曲线才有中间档。
+     * 血量与伤害是修完 selfAv 之后按实测重定的。
+     *
+     * 「倒拨 -40」此前是空转的，修好之后首领的行动频率涨了约 23%，
+     * 实测胜率从 18% 一步掉到 0%。这里不去削弱它的节奏 ——
+     * 操纵时间轴是它的招牌，削了就没有身份了 —— 而是把三招的伤害整体下调，
+     * 让这场战斗靠「它越来越快」施压，而不是靠单次重击堆数值。
+     *
+     * 另一条更早的教训仍在：三招都必须带伤害，纯操作时间轴会让难度塌掉。
      */
-    hp: 195,
+    hp: 188,
     speed: 100,
     moves: [
       {
         id: 'slam',
         name: '重击',
-        intent: '重击 24',
-        text: '造成 24 点伤害',
+        intent: '重击 19',
+        text: '造成 19 点伤害',
         av: 110,
-        effects: [{ t: 'damage', amount: 24 }]
+        effects: [{ t: 'damage', amount: 19 }]
       },
       {
-        // 首领的三招都带伤害。它的招牌是操作时间轴，但那必须是伤害之外的附加
-        // 手段，不能取代伤害 —— 否则玩家几乎不会输，首领战就成了走过场
         id: 'disorder',
         name: '紊乱',
-        intent: '紊乱 +25 · 12',
-        text: '使目标行动值 +25，并造成 12 点伤害',
+        intent: '紊乱 +25 · 9',
+        text: '使目标行动值 +25，并造成 9 点伤害',
         av: 80,
         effects: [
           { t: 'targetAv', amount: 25 },
-          { t: 'damage', amount: 12 }
+          { t: 'damage', amount: 9 }
         ]
       },
       {
         id: 'unwind',
         name: '倒拨',
-        intent: '倒拨 · 8',
-        text: '自身行动值 -40，并造成 8 点伤害',
+        intent: '倒拨 · 6',
+        text: '自身行动值 -40，并造成 6 点伤害',
         av: 60,
         effects: [
           { t: 'selfAv', amount: -40 },
-          { t: 'damage', amount: 8 }
+          { t: 'damage', amount: 6 }
         ]
       }
-    ],
-    flavor: '它不是走得快，它是让别人的时间变慢。'
+    ]
   })
 ];
 

@@ -31,11 +31,6 @@ export function compareEntries(a: TimelineEntry, b: TimelineEntry): number {
   return 0;
 }
 
-/** 原地排序并返回同一数组 */
-export function sortTimeline(entries: TimelineEntry[]): TimelineEntry[] {
-  return entries.sort(compareEntries);
-}
-
 /** 下一个要结算的条目。队列为空时返回 undefined */
 export function peekNext(entries: readonly TimelineEntry[]): TimelineEntry | undefined {
   let best: TimelineEntry | undefined;
@@ -43,13 +38,6 @@ export function peekNext(entries: readonly TimelineEntry[]): TimelineEntry | und
     if (!best || compareEntries(e, best) < 0) best = e;
   }
   return best;
-}
-
-export function findEntry(
-  entries: readonly TimelineEntry[],
-  id: ActionId
-): TimelineEntry | undefined {
-  return entries.find((e) => e.id === id);
 }
 
 /** 移除一项并返回它。找不到返回 undefined（不抛错：取消一张已被别人引爆的挂刻是合法操作） */
@@ -82,16 +70,6 @@ export function shiftEntry(
 /** 按当前规则排出结算顺序的副本，供界面与策略读取 */
 export function orderedSnapshot(entries: readonly TimelineEntry[]): TimelineEntry[] {
   return [...entries].sort(compareEntries);
-}
-
-/** 某个单位在轴上还有没有待结算的条目 */
-export function hasEntriesFor(entries: readonly TimelineEntry[], owner: string): boolean {
-  return entries.some((e) => e.owner === owner);
-}
-
-/** 轴上属于某个单位的全部条目（按结算顺序） */
-export function entriesFor(entries: readonly TimelineEntry[], owner: string): TimelineEntry[] {
-  return orderedSnapshot(entries.filter((e) => e.owner === owner));
 }
 
 /**

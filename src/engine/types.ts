@@ -43,7 +43,6 @@ export type CardUid = string;
 export type ActionId = string;
 
 export type Side = 'ally' | 'foe';
-export type DamageKind = 'attack' | 'dot' | 'pure';
 
 // ==================== 效果与内容 ====================
 
@@ -106,8 +105,6 @@ export interface CardDef {
   text: string;
   /** 结构化效果，引擎唯一依据 */
   effects: Effect[];
-  /** 升级后的覆盖项（后续里程碑接入） */
-  upgraded?: Partial<Pick<CardDef, 'text' | 'effects' | 'cost' | 'delay'>>;
   flavor?: string;
 }
 
@@ -130,7 +127,6 @@ export interface EnemyDef {
   speed: number;
   /** 行动轮转表，按顺序循环。M1 只做固定轮转，权重 AI 留到后续里程碑 */
   moves: EnemyMoveDef[];
-  flavor?: string;
 }
 
 export type EncounterKind = 'normal' | 'elite' | 'boss';
@@ -184,8 +180,6 @@ export interface UnitState {
   block: number;
   /** 步频 */
   speed: number;
-  /** 下一次行动落在哪个行动值上 */
-  nextAt: number;
   alive: boolean;
   buffs: BuffState;
 }
@@ -202,7 +196,7 @@ export type TimelineKind = 'turn' | 'card' | 'aura';
 export interface TimelineEntry {
   id: ActionId;
   owner: UnitId;
-  /** 归属阵营。调度器靠它实现「同为行动机会时玩家先手」，界面用不到 */
+  /** 归属阵营。调度器靠它实现「同为行动机会时玩家先手」，界面靠它决定标签配色 */
   side: Side;
   /** 结算时刻（行动值） */
   at: number;
@@ -255,7 +249,7 @@ export type BattleEvent =
   /** 步频变化。delta 用于界面播增减 */
   | { k: 'speed'; unit: UnitId; value: number; delta: number }
   /** 造成伤害。blocked 为被格挡吸收掉的部分，便于界面显示「格挡 5 / 掉血 3」 */
-  | { k: 'damage'; src: UnitId | null; dst: UnitId; amount: number; blocked: number; kind: DamageKind }
+  | { k: 'damage'; src: UnitId | null; dst: UnitId; amount: number; blocked: number }
   | { k: 'heal'; dst: UnitId; amount: number }
   | { k: 'block'; dst: UnitId; amount: number }
   | { k: 'buff'; dst: UnitId; buff: keyof BuffState; stacks: number }
@@ -297,7 +291,8 @@ export type PlayerAction =
  * 只能凭猜，那与核心机制矛盾。
  */
 export interface EnemyView extends UnitState {
-  moves: { id: string; name: string; intent: string; av: number }[];
+  /** 招式轮转表。只给界面需要的三个字段（显示什么、隔多久），不给 id */
+  moves: { intent: string; av: number }[];
   /** 下一招在轮转表里的下标 */
   nextMoveIndex: number;
 }
@@ -340,7 +335,3 @@ export interface BattleOutput {
   events: BattleEvent[];
   playerHp: number;
 }
-
-// ==================== 冻结空值 ====================
-
-export const EMPTY_BUFFS: Readonly<BuffState> = Object.freeze({ vulnerable: 0, weak: 0 });

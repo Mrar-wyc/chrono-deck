@@ -37,7 +37,7 @@ export function renderAbout(root: HTMLElement, ctx: AppCtx): void {
         h(
           'p',
           { class: 'about-p' },
-          'Vite + TypeScript，零运行时依赖，无前端框架。' +
+          'Vite + TypeScript，不打包任何第三方前端库，也没有前端框架。' +
             '战斗规则是纯函数并自带种子随机数，因此可以回放、可以复现，' +
             '也让机器人对局的平衡测量不带随机噪声。'
         ),

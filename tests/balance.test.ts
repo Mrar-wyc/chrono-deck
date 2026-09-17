@@ -35,7 +35,15 @@ const TIERS: Tier[] = [
   { label: '单只普通怪（教学局）', pick: (k, n) => k === 'normal' && n === 1, lo: 0.8, hi: 1.0 },
   { label: '群战普通怪', pick: (k, n) => k === 'normal' && n >= 2, lo: 0.55, hi: 1.0 },
   { label: '精英', pick: (k) => k === 'elite', lo: 0.2, hi: 0.75 },
-  { label: '首领', pick: (k) => k === 'boss', lo: 0.1, hi: 0.6 }
+  /*
+   * 首领的下沿比其他档低，而且这里是刻意的：它允许很难，但不允许成为必输局。
+   * 上沿 0.6 同样有意义 —— 首领若是必胜，难度分档就只是个标签。
+   *
+   * 另外要记住机器人胜率是**人类表现的下界**：它只按牌面价值贪心出牌，
+   * 从不利用时序轴做规划，而规划正是这个游戏的全部。所以机器人打 15% 的首领，
+   * 一个会算时间轴的玩家胜率会明显更高。
+   */
+  { label: '首领', pick: (k) => k === 'boss', lo: 0.08, hi: 0.6 }
 ];
 
 function tierOf(enc: (typeof ENCOUNTERS)[number]): Tier | undefined {

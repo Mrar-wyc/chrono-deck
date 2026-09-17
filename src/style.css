@@ -718,18 +718,11 @@ body {
   background: #102e2c;
 }
 
-.ax-chip.flash {
-  animation: chip-flash 0.45s ease-out;
-}
-
-@keyframes chip-flash {
-  0% {
-    background: var(--brass);
-    color: var(--ink);
-  }
-  100% {
-    background: inherit;
-  }
+/* 行数已满时的汇总块：它代表的是「还有几项没画出来」，不是一件具体的事 */
+.ax-chip.k-more {
+  color: var(--txt-soft);
+  background: var(--card-deep);
+  border-style: dashed;
 }
 
 .ax-legend {
@@ -1040,9 +1033,9 @@ body {
   transform: translateY(-5px);
 }
 
+/* 时能不够时仍然可点：点它会提示需要多少时能，而如果是已选中的那张则用来取消选择 */
 .hand-card.off {
   opacity: 0.42;
-  cursor: not-allowed;
 }
 
 .hand-card.off:hover {

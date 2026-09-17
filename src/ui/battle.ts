@@ -104,6 +104,9 @@ export function createBattleScreen(input: BattleInput, ctx: BattleCtx): BattleCo
       'button',
       {
         class: `btn ghost sp${s === speed ? ' on' : ''}`,
+        // data-sp 必须直接写倍速本身。此前是事后从 textContent（"1×"）里取的，
+        // 而 Number("1×") 是 NaN，于是高亮比较恒为假 —— 点任何倍速都会把三个按钮的高亮全清掉
+        'data-sp': String(s),
         onclick: () => {
           speed = s;
           for (const b of speedButtons) b.classList.toggle('on', Number(b.dataset.sp) === speed);
@@ -113,15 +116,21 @@ export function createBattleScreen(input: BattleInput, ctx: BattleCtx): BattleCo
       `${s}×`
     )
   );
-  speedButtons.forEach((b) => b.setAttribute('data-sp', b.textContent ?? ''));
 
   const skipBtn = h(
     'button',
     {
       class: 'btn ghost',
       onclick: () => {
+        /*
+         * 只在回放进行中有效。此前没有这个判断，播放之外点一下会把 skipping
+         * 一直挂到下一次播放结束 —— 玩家点了一次跳过，什么都没发生，
+         * 然后下一次敌方回合悄无声息地全被跳过了。
+         */
+        if (!busy) return;
         // 跳过只影响「还要等多久」，不会漏掉任何事件：剩下的照样逐条应用，只是不等待
         skipping = true;
+        skipCounter = 0;
         toast('已跳过动画');
       }
     },
@@ -150,6 +159,15 @@ export function createBattleScreen(input: BattleInput, ctx: BattleCtx): BattleCo
 
   function sync(): void {
     const view = battle.view();
+
+    /*
+     * 选中的牌必须还在手上，否则选择状态就成了一个没有出口的陷阱：
+     * 「结束回合」被换成一句提示，而那张牌已经不在了，点哪儿都没用。
+     * 三个清除点之外再加这一道自愈，是因为「手上没有它」是一个可以就地判断的
+     * 客观事实，没有理由让它靠调用顺序来保证。
+     */
+    if (selected !== null && !view.hand.some((c) => c.uid === selected)) selected = null;
+
     const axisWidth = axisHost.clientWidth || AXIS_WIDTH;
     renderAxis(axisHost, view.timeline, view.now, axisWidth);
     renderSide(view);
@@ -313,15 +331,21 @@ export function createBattleScreen(input: BattleInput, ctx: BattleCtx): BattleCo
   function handCardEl(card: CardInstance, energy: number): HTMLElement {
     const def = cardOr(card.def.id);
     const affordable = card.def.cost <= energy;
-    const usable = affordable && !busy && !finished;
+    const interactive = !busy && !finished;
     const isSel = selected === card.uid;
 
     return h(
       'div',
       {
-        class: `hand-card k-${def.kind}${usable ? '' : ' off'}${isSel ? ' sel' : ''}`,
+        /*
+         * 视觉上的「打不出」与能否点击是两件事，不能混为一谈。
+         * 此前一不可负担就把 onclick 整个摘掉，于是「再点一次取消」
+         * 在牌变得更贵之后彻底失效 —— 玩家只能靠点一个敌人来脱身，
+         * 而提示文字并没有这么说。现在点击始终有效，由 onCardClick 分情况处理。
+         */
+        class: `hand-card k-${def.kind}${affordable ? '' : ' off'}${isSel ? ' sel' : ''}`,
         'data-card': card.uid,
-        onclick: usable ? () => onCardClick(card) : undefined
+        onclick: interactive ? () => onCardClick(card, affordable) : undefined
       },
       h(
         'div',
@@ -336,24 +360,44 @@ export function createBattleScreen(input: BattleInput, ctx: BattleCtx): BattleCo
 
   // ==================== 操作 ====================
 
-  function onCardClick(card: CardInstance): void {
+  /**
+   * 点一张手牌。
+   *
+   * 取消（再点一次已选中的牌）排在最前面，**在支付能力判断之前** ——
+   * 手里时能不够时仍然要能取消，否则玩家会被困在选择状态里。
+   */
+  function onCardClick(card: CardInstance, affordable: boolean): void {
     if (busy || finished) return;
+
     if (selected === card.uid) {
       selected = null;
       sync();
       return;
     }
+
+    if (!affordable) {
+      toast(`时能不足，需要 ${card.def.cost}`);
+      return;
+    }
+
     if (card.def.target === 'enemy') {
-      // 需要目标：进入选择状态，等玩家点一个敌人
+      // 需要目标：只选一个敌人时直接打出去，否则进入选择状态等玩家点
       const enemies = battle.view().enemies;
       if (enemies.length === 1) {
         void playSelected(enemies[0]!.id, card.uid);
+        return;
+      }
+      if (enemies.length === 0) {
+        // 理论上到不了这里（没有敌人时战斗已经结束），但真到了这里也不能
+        // 把「结束回合」换成一句提示——那会让玩家没有任何可点的按钮
+        toast('没有可攻击的目标');
         return;
       }
       selected = card.uid;
       sync();
       return;
     }
+
     void playSelected(undefined, card.uid);
   }
 
@@ -395,29 +439,50 @@ export function createBattleScreen(input: BattleInput, ctx: BattleCtx): BattleCo
     skipping = false;
   }
 
+  /**
+   * 把一条事件投影成「界面上的变化 + 一句话」。
+   *
+   * 每个分支都以 `return` 结束，末尾再用 `const unhandled: never = ev` 做穷尽检查 ——
+   * 这样漏掉任何一类事件都是**编译错误**，而不是运行时被静默忽略。
+   * 此前用一个 `default: break` 收尾，于是 draw / energy / turnEnd 这三类事件
+   * 一直是「有等待、无反馈」：玩家看着界面停了一下，却什么也没看到。
+   */
   function applyEvent(ev: BattleEvent): void {
     const v = battle.view();
     switch (ev.k) {
       case 'clock':
         note = `时钟推进到 ${ev.at} 行动值`;
-        break;
+        return;
       case 'turnStart':
         note = ev.unit === v.me.id ? `第 ${ev.round} 回合 · 轮到我方` : `${unitName(ev.unit)} 开始行动`;
-        break;
+        return;
+      case 'turnEnd':
+        note = ev.unit === v.me.id ? '你的回合结束' : `${unitName(ev.unit)} 结束行动`;
+        return;
       case 'play': {
         const def = cardOr(ev.cardId);
         note = `打出「${def.name}」`;
-        break;
+        return;
       }
       case 'resolve':
         note = '一张挂刻引爆了';
-        break;
+        return;
       case 'schedule':
         note =
           ev.entry.kind === 'card'
             ? `挂刻「${ev.entry.label}」排在 ${ev.entry.at} 行动值`
             : `${ev.entry.label} 排在 ${ev.entry.at} 行动值`;
-        break;
+        return;
+      case 'draw':
+        note = `抽到 ${ev.cards.length} 张刻印`;
+        floatOn(ev.unit, `+${ev.cards.length} 张`, 'blk');
+        return;
+      case 'discard':
+        if (ev.cards.length > 1) note = `弃掉 ${ev.cards.length} 张手牌`;
+        return;
+      case 'energy':
+        note = ev.delta >= 0 ? `时能 ${ev.value}（+${ev.delta}）` : `时能 ${ev.value}`;
+        return;
       case 'damage': {
         const who = ev.dst === v.me.id ? '你' : unitName(ev.dst);
         const blockText = ev.blocked > 0 ? `（格挡吸收 ${ev.blocked}）` : '';
@@ -425,44 +490,47 @@ export function createBattleScreen(input: BattleInput, ctx: BattleCtx): BattleCo
         floatOn(ev.dst, `-${ev.amount - ev.blocked}`, 'dmg');
         if (ev.blocked > 0) floatOn(ev.dst, `挡 ${ev.blocked}`, 'blk', 26);
         shake(ev.dst);
-        break;
+        return;
       }
       case 'heal':
         note = `${unitName(ev.dst)} 回复 ${ev.amount} 点稳定度`;
         floatOn(ev.dst, `+${ev.amount}`, 'heal');
-        break;
+        return;
       case 'block':
         note = `${unitName(ev.dst)} 获得 ${ev.amount} 点格挡`;
         floatOn(ev.dst, `+${ev.amount} 格挡`, 'blk');
-        break;
+        return;
       case 'buff':
         note = `${unitName(ev.dst)} 获得 ${ev.stacks} 层${ev.buff === 'vulnerable' ? '易伤' : '虚弱'}`;
         floatOn(ev.dst, ev.buff === 'vulnerable' ? '易伤' : '虚弱', 'bad');
-        break;
+        return;
       case 'shift':
         note = `${unitName(ev.unit)} 的行动值 ${ev.from} → ${ev.to}`;
-        break;
+        return;
       case 'cancel':
         note = `取消了 ${unitName(ev.owner)} 的行动`;
-        break;
+        return;
       case 'death':
         note = `${unitName(ev.unit)} 崩解了`;
-        break;
+        return;
       case 'speed':
         note = `${unitName(ev.unit)} 步频变为 ${ev.value}`;
-        break;
+        return;
       case 'rejected':
         note = `无法出牌：${ev.reason}`;
-        break;
-      case 'discard':
-        note = ev.cards.length > 1 ? `弃掉 ${ev.cards.length} 张手牌` : note;
-        break;
+        return;
       case 'end':
         note = ev.result === 'win' ? '时序已修复。' : '你的稳定度归零。';
-        break;
-      default:
-        break;
+        return;
     }
+
+    /*
+     * 穷尽检查：上面每一类事件都以 return 结束，所以走到这里 ev 的类型必须是 never。
+     * 一旦 BattleEvent 联合类型新增了成员而这里漏了处理，`tsc` 会在这一行报错 ——
+     * 这比一个悄悄吞掉事件的 `default: break` 值钱得多。
+     */
+    const unhandled: never = ev;
+    throw new Error(`未处理的事件类型：${JSON.stringify(unhandled)}`);
   }
 
   function unitName(id: UnitId): string {
@@ -471,8 +539,24 @@ export function createBattleScreen(input: BattleInput, ctx: BattleCtx): BattleCo
     return v.enemies.find((e) => e.id === id)?.name ?? '畸变体';
   }
 
+  /**
+   * 跳过时每这么多次事件让出一次事件循环。
+   *
+   * 每次都让出太贵：`setTimeout(0)` 有毫秒级的下限，一场对局上千条事件就是几秒钟。
+   * 但一次都不让出更糟 —— 整段回放会挤在同一个任务里执行完，中途一次绘制都没有，
+   * 中端安卓上就是可见的卡死。每 8 条一次意味着每个任务约一千次建节点（几毫秒），
+   * 浏览器有机会在任务之间绘制，而开销降到八分之一。
+   */
+  const SKIP_YIELD_EVERY = 8;
+  let skipCounter = 0;
+
   function wait(ms: number): Promise<void> {
-    if (skipping || ms <= 0) return Promise.resolve();
+    if (ms <= 0) return Promise.resolve();
+    if (skipping) {
+      skipCounter += 1;
+      if (skipCounter % SKIP_YIELD_EVERY !== 0) return Promise.resolve();
+      return new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
     return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
 

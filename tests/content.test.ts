@@ -68,8 +68,16 @@ describe('内容校验', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('刻印总数达到 30 张，三种形态各有足够的选择面', () => {
-    expect(ALL_CARDS.length).toBe(30);
+  it('刻印总数不低于 30，三种形态各有足够的选择面', () => {
+    /*
+     * 这里刻意用「不少于」而不是「恰好」。
+     *
+     * 精确计数不提供任何保护 —— 加一张牌本来就不该让测试变红，
+     * 它只否定了项目对外的承诺：加一张刻印只改一个文件。
+     * 真正的守线是各形态的下限（下面三条）与内容校验，
+     * 它们能在「卡池被掏空」时报警，而不会拦住正常的扩池。
+     */
+    expect(ALL_CARDS.length).toBeGreaterThanOrEqual(30);
     const byKind = (k: CardDef['kind']): number => ALL_CARDS.filter((c) => c.kind === k).length;
     expect(byKind('instant')).toBeGreaterThanOrEqual(9);
     expect(byKind('deferred')).toBeGreaterThanOrEqual(8);

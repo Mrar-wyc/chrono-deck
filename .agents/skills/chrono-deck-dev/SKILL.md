@@ -9,8 +9,9 @@ description: 开发《授时局》(chrono-deck) 时加载。涵盖技术栈约�
 
 ## 技术栈
 
-Vite 7 + TypeScript 5.8（strict）+ Vitest 3 + jsdom + Capacitor 7。
-**零运行时依赖**：没有前端框架、没有 Tailwind、没有 ESLint、没有状态管理库。
+Vite 7 + TypeScript 5.9（strict）+ Vitest 5 + jsdom + Capacitor 7。
+**不打包任何第三方前端库**：没有框架、没有 Tailwind、没有 ESLint、没有状态管理库；
+`package.json` 里的三个运行时依赖都是 Capacitor 插件，只服务于安卓壳，不进 web 产物。
 这不是省事，是开源友好——贡献者 clone 完 `npm install` 就能跑，不需要理解任何框架。
 
 ## 命令
@@ -28,7 +29,7 @@ git tag v0.2.0 && git push origin v0.2.0         # 发 Release
 
 ## 八条铁律
 
-1. **不许出现全局随机数。** 任何需要随机的地方接收 `Rng` 参数。全项目扫描，注释里的字面量也不放过。破坏它是静默的，而且会让回放、复现、种子分享、平衡测量同时失效。
+1. **不许出现 `Math.random`。** 任何需要随机的地方接收 `Rng` 参数。守卫测试会扫源码，注释里的字面量也不放过。破坏它是静默的，而且会让回放、复现、种子分享、平衡测量同时失效。唯一的例外是 `newSeed()`（用时间戳，代码里写明了理由）。
 2. **规则层不许碰界面。** `src/engine`、`src/content`、`src/replay` 不得 import `src/ui`。`src/engine/types.ts` 是契约根，它自己不得 import 任何东西。
 3. **同一行动值的结算顺序是「挂刻 → 玩家 → 敌人」。** 由 `TIMELINE_PRIORITY` 与「同为行动机会时玩家先手」共同定义。这是全局最重要的规则，也是校正类牌存在的全部理由；它一旦漂移，所有卡牌的相对价值都会变。`tests/engine.test.ts` 钉死了它。
 4. **内容查询不抛错。** 用 `findCard()` / `cardOr()`，未知 id 返回 `undefined` 或占位卡面，不要写会 throw 的 `xxxById`。
@@ -80,7 +81,7 @@ battle.endTurn()              → { events, result }
 | `replay.test.ts` | 稳定序列化、状态哈希、种子→哈希链路 |
 | `balance.test.ts` | 分档胜率区间、难度排序、精英与首领必须有真实败率 |
 | `soak.test.ts` | 200 局不变量：伤害自洽、时能非负、时钟单调、结算必先排轴、挂刻不重复在飞、恰一个结局 |
-| `guards.test.ts` | 零全局随机源、分层方向、舞台尺寸、字号下限、形态色带与轴宽双轨、版本号三处同步 |
+| `guards.test.ts` | 禁止 Math.random、禁止注入面下沉点、禁止 src 引用 Node API、分层方向、舞台尺寸、字号下限、形态色带与轴宽双轨、版本号同步、wrapper jar 哈希 |
 | `ui-smoke.test.ts` | jsdom 真实点击：标题→筹备→选遭遇→选牌→进战斗→出牌→打到结算→返回 |
 | `diag.test.ts` | 单局逐回合诊断（默认安静，`DIAG=1` 才打印） |
 
@@ -92,7 +93,9 @@ battle.endTurn()              → { events, result }
 
 ## 发布
 
-版本号三处必须同步：`package.json`、`android/app/build.gradle` 的 `versionName` 与 `versionCode`、git tag。
+版本号**四处**必须同步：`package.json`、`package-lock.json` 的根 `version`、`android/app/build.gradle` 的 `versionName` 与 `versionCode`、以及 git tag。前三处的同步由守卫测试断言（锁文件那处一度被漏掉，悄悄停在旧号上很久）。
+
+同步锁文件用 `npm install --package-lock-only`，不要手改。
 `versionCode` 漏加会导致侧载更新不被识别（已踩过的坑）。
 
 提交信息用中文，`feat`/`fix`/`test`/`docs`/`chore` 开头，一个提交只做一件事。不要 `git add -A`，不强推 `main`。

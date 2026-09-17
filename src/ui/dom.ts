@@ -53,10 +53,6 @@ export function h<T extends HTMLElement = HTMLElement>(
   return el;
 }
 
-export function clear(el: HTMLElement): void {
-  while (el.firstChild) el.removeChild(el.firstChild);
-}
-
 let toastTimer: number | undefined;
 
 /** 短暂提示。全项目只有这一个，重复调用会重置计时而不是叠出多个 */

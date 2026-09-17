@@ -103,6 +103,45 @@ export function laneCount(chips: readonly ChipLayout[]): number {
   return chips.reduce((n, c) => Math.max(n, c.lane + 1), 1);
 }
 
+/**
+ * 时序轴最多画几行。
+ *
+ * 舞台是固定 720px 且 `overflow: hidden`，轴又是 `flex-shrink: 0` ——
+ * 行数一多它就会去挤 `.battle-body`，把下面装着「结束回合」的那一条推出舞台：
+ * 玩家既看不到手牌也点不到按钮。按每行 32px 与其余部件的固定高度算，
+ * 五行是能保住操作区安全的上限。
+ *
+ * 超出部分不丢信息，而是合并成一条「另有 N 项」的汇总块。
+ */
+export const MAX_LANES = 5;
+
+export interface AxisLayout {
+  chips: ChipLayout[];
+  /** 行数已满、没有单独画出来的条目数 */
+  hidden: number;
+  /** 被省略的条目里最早的时刻。汇总块放在这个位置，因为时间位置本身是信息 */
+  hiddenFrom: number | null;
+  lanes: number;
+}
+
+export function layoutAxis(
+  entries: readonly TimelineEntry[],
+  now: number,
+  span: number,
+  width: number
+): AxisLayout {
+  const all = layoutChips(entries, now, span, width);
+  const kept = all.filter((c) => c.lane < MAX_LANES);
+  const dropped = all.filter((c) => c.lane >= MAX_LANES);
+
+  return {
+    chips: kept,
+    hidden: dropped.length,
+    hiddenFrom: dropped.length > 0 ? dropped[0]!.entry.at : null,
+    lanes: Math.max(1, Math.min(laneCount(all), MAX_LANES))
+  };
+}
+
 function chipClass(entry: TimelineEntry): string {
   if (entry.kind === 'card') return 'ax-chip k-card';
   return entry.side === 'ally' ? 'ax-chip k-turn side-ally' : 'ax-chip k-turn side-foe';
@@ -118,13 +157,11 @@ export function renderAxis(
   host: HTMLElement,
   entries: readonly TimelineEntry[],
   now: number,
-  width: number,
-  highlightId?: string
+  width: number
 ): number {
   const span = pickSpan(entries, now);
-  const chips = layoutChips(entries, now, span, width);
-  const lanes = laneCount(chips);
-  const height = lanes * (CHIP_HEIGHT + 6) + 26;
+  const layout = layoutAxis(entries, now, span, width);
+  const height = layout.lanes * (CHIP_HEIGHT + 6) + 26;
 
   host.replaceChildren();
 
@@ -144,19 +181,36 @@ export function renderAxis(
     );
   }
 
-  for (const chip of chips) {
+  for (const chip of layout.chips) {
     const top = chip.lane * (CHIP_HEIGHT + 6) + 22;
     win.append(
       h(
         'div',
         {
-          class: `${chipClass(chip.entry)}${chip.entry.id === highlightId ? ' flash' : ''}`,
+          class: chipClass(chip.entry),
           'data-entry': chip.entry.id,
           style: { left: `${chip.x}px`, width: `${chip.width}px`, top: `${top}px` },
           title: `${chip.entry.label} · ${chip.entry.at} AV`
         },
         h('span', { class: 'ax-chip-av' }, String(chip.entry.at)),
         h('span', { class: 'ax-chip-label' }, chip.entry.label)
+      )
+    );
+  }
+
+  // 行数已满时，剩下的合并成一条汇总块。位置取被省略的最早时刻 ——
+  // 时间位置本身就是信息，堆在右边会让玩家误判它们发生得更晚
+  if (layout.hidden > 0 && layout.hiddenFrom !== null) {
+    const x = Math.max(0, Math.min(width - 96, ((layout.hiddenFrom - now) / span) * width));
+    win.append(
+      h(
+        'div',
+        {
+          class: 'ax-chip k-more',
+          style: { left: `${x}px`, top: `${(layout.lanes - 1) * (CHIP_HEIGHT + 6) + 22}px` },
+          title: `还有 ${layout.hidden} 项没有单独画出`
+        },
+        `另有 ${layout.hidden} 项`
       )
     );
   }

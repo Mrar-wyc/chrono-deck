@@ -10,7 +10,7 @@ Cards don't resolve immediately. You place them onto a public timeline, where th
 [![Android Build](https://github.com/Mrar-wyc/chrono-deck/actions/workflows/android-build.yml/badge.svg)](https://github.com/Mrar-wyc/chrono-deck/actions/workflows/android-build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-c9a227.svg)](LICENSE)
 
-[Play in browser](https://mrar-wyc.github.io/chrono-deck/) · [中文](README.md) · [Contributing](CONTRIBUTING.md)
+[Play in browser](https://mrar-wyc.github.io/chrono-deck/) · [中文](README.md) · [Progress & design notes](docs/开发进度.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -34,7 +34,7 @@ Deferred cards are strictly more efficient per energy than instant ones (Frost S
 
 ### Why it's a solvable puzzle
 
-The timeline is fully visible, including where the enemy's next action lands and what it will do for the next few turns (its move rotation is printed right on its card). A seal you detonate after 60 action points either beats the enemy's next action at 110, or it doesn't — and if it doesn't, you take the hit first.
+The timeline is fully visible, including where the enemy's next action lands and what it will do over the next two or three turns (its move rotation is printed right on its card). A seal you detonate after 60 action points either beats the enemy's next action at 110, or it doesn't — and if it doesn't, you take the hit first.
 
 Shift cards let you reorder that: act sooner, push the enemy back, cancel an action already on the axis, or pull a scheduled seal forward. **Resolution order at the same action point is: deferred seals, then you, then enemies** — so "landing exactly one tick before the enemy" is computable and reproducible.
 
@@ -42,18 +42,18 @@ Baseline: a unit with tempo 100 acts once every 100 action points.
 
 ### Measured difficulty curve
 
-Bot win rates over 40 seeded matches per tier (`tests/balance.test.ts`):
+Bot win rates over 40 seeded matches per tier (`tests/balance.test.ts`). The bot plays greedily by card value and never plans the timeline, so these are a **lower bound on human performance** — a player who does the arithmetic will do better.
 
 | Tier | Encounter | Win rate |
 |---|---|---|
-| Single normal (tutorial) | Debris / Lagging / Rusher / Corroder | 100% |
-| Group normal | Twin Debris | 95% |
+| Single normal (tutorial) | Debris / Lagging / Rusher / Corroder | 98% – 100% |
+| Group normal | Twin Debris | 100% (a 4.3-round war of attrition) |
 | Elite | Corroder & Debris | 40% |
-| Boss | Disjoiner | 18% |
+| Boss | Disjoiner | 23% |
 
 ## Running it
 
-Node.js 20 or newer.
+Node.js 22.12 or newer (required by `vitest` 5's engine field; on Node 20 `npm test` fails outright).
 
 ```bash
 npm install
@@ -74,7 +74,7 @@ npx cap sync android
 cd android && ./gradlew assembleDebug
 ```
 
-The APK lands in `android/app/build/outputs/apk/debug/app-debug.apk`. You can also grab it from [Releases](https://github.com/Mrar-wyc/chrono-deck/releases) or from the Actions build artifacts.
+The APK lands in `android/app/build/outputs/apk/debug/app-debug.apk`. You can also get it from [Releases](https://github.com/Mrar-wyc/chrono-deck/releases) or the Actions build artifacts — note Releases is still empty, since no `v*` tag has been pushed yet (the release job only runs on a tag).
 
 ## Layout
 

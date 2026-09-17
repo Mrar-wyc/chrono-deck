@@ -9,7 +9,6 @@ import type {
   BattleStep,
   CardInstance,
   CardUid,
-  DamageKind,
   Effect,
   EnemyDef,
   PlayerView,
@@ -128,25 +127,71 @@ function makeUnit(
     maxHp: hp,
     block: 0,
     speed,
-    nextAt: 0,
     alive: true,
     buffs: { vulnerable: 0, weak: 0 }
   };
 }
 
-export function createBattle(input: BattleInput): Battle {
-  /*
-   * 零敌人的战斗必须当场报错，不能开着打。
-   * 否则 checkEnd 里的 `every(!alive)` 对空数组恒为真，一开局就被判成胜利 ——
-   * 玩家侧有 main.ts 的前置检查挡着，但引擎层留着这个陷阱迟早会有人踩
-   * （诊断工具就踩过一次：写错遭遇名得到一份「一步就赢」的假战报）。
-   */
+/**
+ * 战斗输入必须自洽。
+ *
+ * 这些值平时来自 `content/player.ts` 的冻结常量与内容表，看起来不会出错 ——
+ * 但引擎是公开 API，测试与未来的单局流程都会直接构造 `BattleInput`。
+ * 不合法的值不会报错，只会让引擎进入一个「没有敌人可打」「时钟走不动」
+ * 或者「同一张牌被静默吞掉」的状态，排查起来远比在这里拦下来贵。
+ */
+function validateInput(input: BattleInput): void {
+  const posInt = (value: number, what: string): void => {
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new Error(`${what} 必须是正整数，实际是 ${value}`);
+    }
+  };
+  const nonNegInt = (value: number, what: string): void => {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(`${what} 必须是非负整数，实际是 ${value}`);
+    }
+  };
+
   if (input.enemies.length === 0) {
     throw new Error('战斗至少需要一个敌人：检查遭遇配表是否正确引用，或 buildBattleInput 是否收到了合法遭遇 id');
   }
   if (input.deck.length === 0) {
     throw new Error('战斗至少需要一张刻印：检查牌组装配');
   }
+
+  posInt(input.player.maxHp, '玩家稳定度上限');
+  // 步频为 0 会让行动间隔退化成一万行动值，表现为「时间轴卡住不动」
+  posInt(input.player.speed, '玩家步频');
+  nonNegInt(input.player.energyPerTurn, '每回合时能');
+  nonNegInt(input.player.handSize, '手牌上限');
+
+  for (const def of input.enemies) {
+    posInt(def.hp, `畸变体「${def.name}」的血量`);
+    posInt(def.speed, `畸变体「${def.name}」的步频`);
+    if (def.moves.length === 0) throw new Error(`畸变体「${def.name}」没有任何招式`);
+  }
+
+  const seenUid = new Set<string>();
+  for (const card of input.deck) {
+    // 重复的 uid 会让 inFlight / cardTargets 这两个以 uid 为键的表互相覆盖，
+    // 结果是一张牌被静默吞掉：时能花了、什么都没发生、也不进弃牌堆
+    if (seenUid.has(card.uid)) {
+      throw new Error(`刻印副本 uid 重复：${card.uid}。每一张副本都必须有唯一 uid`);
+    }
+    seenUid.add(card.uid);
+
+    if (card.def.kind === 'deferred') {
+      const delay = card.def.delay;
+      // delay <= 0 会把挂刻排在当前时刻或更早，让时钟倒流
+      if (delay === undefined || !Number.isInteger(delay) || delay <= 0) {
+        throw new Error(`挂刻「${card.def.name}」必须有正整数 delay，实际是 ${String(delay)}`);
+      }
+    }
+  }
+}
+
+export function createBattle(input: BattleInput): Battle {
+  validateInput(input);
 
   const names = labelEnemies(input.enemies);
   const state: State = {
@@ -234,7 +279,6 @@ function schedulePlayerTurn(state: State, at: number, silent = false): void {
     label: '我'
   };
   state.queue.push(entry);
-  state.player.nextAt = entry.at;
   if (!silent) emit(state, { k: 'schedule', entry: { ...entry } });
 }
 
@@ -251,7 +295,6 @@ function scheduleEnemyTurn(state: State, e: EnemyRuntime, at: number, silent = f
     moveId: move.id
   };
   state.queue.push(entry);
-  e.unit.nextAt = entry.at;
   if (!silent) emit(state, { k: 'schedule', entry: { ...entry } });
 }
 
@@ -290,6 +333,18 @@ function earliestCardEntry(state: State): TimelineEntry | undefined {
   return best;
 }
 
+/**
+ * 时间轴操作的下限：任何条目都不能被挪到当前时刻或更早。
+ *
+ * 用 `now + 1` 而不是 `now`，是为了保证**每次结算都让时钟严格前进**。
+ * 否则一个「招式 av 很小、selfAv 很大」的敌人会把下一次行动钳在当前时刻，
+ * 于是它在同一个行动值上反复出手，时钟再不前进 —— 战斗彻底卡死。
+ * `cancel` 从一开始就是这么处理的，这里把它统一成一条有名字的规则。
+ */
+function avFloor(state: State): number {
+  return state.now + 1;
+}
+
 // ==================== 查询 ====================
 
 function findUnit(state: State, id: UnitId): UnitState | undefined {
@@ -299,6 +354,12 @@ function findUnit(state: State, id: UnitId): UnitState | undefined {
 
 function livingEnemies(state: State): UnitState[] {
   return state.enemies.filter((e) => e.unit.alive).map((e) => e.unit);
+}
+
+/** 某个单位是否还活着。轴上的条目只在该单位的归属者活着时才展示给玩家 */
+function isAliveOwner(state: State, owner: UnitId): boolean {
+  if (owner === state.player.id) return state.player.alive;
+  return state.enemies.some((e) => e.unit.id === owner && e.unit.alive);
 }
 
 // ==================== 伤害 ====================
@@ -325,8 +386,7 @@ function dealDamage(
   state: State,
   src: UnitId | null,
   target: UnitState,
-  amount: number,
-  kind: DamageKind
+  amount: number
 ): void {
   if (!target.alive) return;
   const attacker = src ? findUnit(state, src) : undefined;
@@ -336,7 +396,7 @@ function dealDamage(
   const hpLoss = dmg - absorbed;
   target.hp = Math.max(0, target.hp - hpLoss);
 
-  emit(state, { k: 'damage', src, dst: target.id, amount: dmg, blocked: absorbed, kind });
+  emit(state, { k: 'damage', src, dst: target.id, amount: dmg, blocked: absorbed });
 
   if (target.hp === 0) {
     target.alive = false;
@@ -398,7 +458,7 @@ function applyEffects(
         for (let i = 0; i < times; i++) {
           const t = pickFoe(state, actor, targetId);
           if (!t) return;
-          dealDamage(state, actorId, t, ef.amount, 'attack');
+          dealDamage(state, actorId, t, ef.amount);
           if (state.result !== null) return;
         }
         break;
@@ -427,7 +487,7 @@ function applyEffects(
 
       case 'selfAv': {
         const entry = nextTurnEntryFor(state, actorId);
-        const moved = entry && shiftEntry(state.queue, entry.id, ef.amount, state.now);
+        const moved = entry && shiftEntry(state.queue, entry.id, ef.amount, avFloor(state));
         if (moved) emit(state, { k: 'shift', unit: actorId, from: moved.from, to: moved.to });
         break;
       }
@@ -436,7 +496,7 @@ function applyEffects(
         const t = pickFoe(state, actor, targetId);
         if (!t) break;
         const entry = nextTurnEntryFor(state, t.id);
-        const moved = entry && shiftEntry(state.queue, entry.id, ef.amount, state.now);
+        const moved = entry && shiftEntry(state.queue, entry.id, ef.amount, avFloor(state));
         if (moved) emit(state, { k: 'shift', unit: t.id, from: moved.from, to: moved.to });
         break;
       }
@@ -452,10 +512,9 @@ function applyEffects(
         const pushed: TimelineEntry = {
           ...entry,
           id: state.nextId('turn'),
-          at: Math.max(state.now + 1, entry.at + ef.av)
+          at: Math.max(avFloor(state), entry.at + ef.av)
         };
         state.queue.push(pushed);
-        t.nextAt = pushed.at;
         emit(state, { k: 'schedule', entry: { ...pushed } });
         break;
       }
@@ -464,7 +523,7 @@ function applyEffects(
         // 把最靠前的那张挂刻拉回来。没有挂刻时什么都不发生（空放）
         const cardEntry = earliestCardEntry(state);
         if (!cardEntry) break;
-        const moved = shiftEntry(state.queue, cardEntry.id, -ef.amount, state.now);
+        const moved = shiftEntry(state.queue, cardEntry.id, -ef.amount, avFloor(state));
         if (moved) emit(state, { k: 'shift', unit: cardEntry.owner, from: moved.from, to: moved.to });
         break;
       }
@@ -542,17 +601,31 @@ function runEnemyTurn(state: State, entry: TimelineEntry): void {
   unit.block = 0;
   emit(state, { k: 'turnStart', unit: unit.id, round: state.round });
 
+  /*
+   * **先把自己的下一次行动排上轴，再结算这一招。**
+   *
+   * 顺序很关键：`advance()` 在调用本函数之前就已经把当前条目从轴上摘掉了，
+   * 如果等到结算完才排下一条，那么招式效果里的 `selfAv` 会找不到可以挪动的条目
+   * 而**静默失效** —— 抢拍体的「加速 -30」与失序使的「倒拨 -40」就一直是空转的，
+   * 而它们的招式轮转表还明明白白展示给玩家。
+   *
+   * 玩家回合用的是同一个顺序（`startPlayerTurn` 一开始就排下一次），
+   * 所以这样改之后双方的时间轴操作才是对称的。
+   *
+   * 间隔取自接下来要出的那一招：这样轴上的标签与「它多久之后发生」是同一件事。
+   */
+  rt.moveIdx = (rt.moveIdx + 1) % rt.def.moves.length;
+  const nextMove = rt.def.moves[rt.moveIdx]!;
+  scheduleEnemyTurn(state, rt, state.now + moveInterval(nextMove.av, unit.speed));
+
   const move =
-    rt.def.moves.find((m) => m.id === entry.moveId) ?? rt.def.moves[rt.moveIdx % rt.def.moves.length]!;
+    rt.def.moves.find((m) => m.id === entry.moveId) ??
+    rt.def.moves[(rt.moveIdx - 1 + rt.def.moves.length) % rt.def.moves.length]!;
   applyEffects(state, move.effects, unit.id, state.player.id);
 
   if (state.result !== null) return;
   decayBuffs(unit);
   emit(state, { k: 'turnEnd', unit: unit.id });
-  rt.moveIdx = (rt.moveIdx + 1) % rt.def.moves.length;
-  // 间隔取自接下来要出的那一招：这样轴上的标签与「它多久之后发生」是同一件事
-  const next = rt.def.moves[rt.moveIdx]!;
-  scheduleEnemyTurn(state, rt, state.now + moveInterval(next.av, unit.speed));
 }
 
 function resolveCardEntry(state: State, entry: TimelineEntry): void {
@@ -595,7 +668,20 @@ function checkEnd(state: State): void {
 function advance(state: State): void {
   let guard = 0;
   while (state.result === null && !state.playerActing) {
-    if (guard++ > MAX_STEPS) break;
+    /*
+     * 触发上限时**必须抛错，不能静默 break**。
+     *
+     * 静默 break 会留下一个更糟的状态：`playerActing` 还是 false，结果也还是 null，
+     * 于是界面看起来一切正常（手牌可以点、结束回合可点），但每次出牌都被
+     * 「现在不是你的回合」弹回来，时钟永远停在那一格 —— 玩家完全看不出发生了什么。
+     * 抛错则会被 main.ts 的渲染兜底接住，显示成可读的崩溃界面。
+     */
+    if (guard++ > MAX_STEPS) {
+      throw new Error(
+        `一次推进结算了超过 ${MAX_STEPS} 个条目仍未轮到玩家：时间轴可能陷入了循环。` +
+          `请检查是否有招式的 av 与 selfAv 组合会让某个单位在同一行动值上反复出手`
+      );
+    }
     const next = peekNext(state.queue);
     if (!next) break;
 
@@ -633,10 +719,24 @@ function makeBattle(state: State): Battle {
           .filter((e) => e.unit.alive)
           .map((e) => ({
             ...cloneUnit(e.unit),
-            moves: e.def.moves.map((m) => ({ id: m.id, name: m.name, intent: m.intent, av: m.av })),
+            moves: e.def.moves.map((m) => ({ intent: m.intent, av: m.av })),
             nextMoveIndex: e.moveIdx % e.def.moves.length
           })),
-        timeline: orderedSnapshot(state.queue).map((e) => ({ ...e }))
+        /*
+         * 轴上也只留活人的条目。
+         *
+         * 敌人阵亡时它在轴上的下一次行动**不会被摘掉** —— 它只会在时钟走到那一刻
+         * 被 advance() 顺手弹出，然后 runEnemyTurn 因为目标已死而静默返回。
+         * 如果那一击正好结束了战斗，时钟甚至不会再走，这条就永远留在队列里。
+         * 不过滤的话，玩家会在一具尸体的位置看到它的下一步行动，
+         * 而且是结算浮层（半透明）背后那一条擦不掉的残留。
+         *
+         * 过滤放在 view 而不是引擎队列上：队列保持「真实发生过什么」的完整记录，
+         * view 才是玩家看到的那份投影。
+         */
+        timeline: orderedSnapshot(state.queue)
+          .filter((e) => isAliveOwner(state, e.owner))
+          .map((e) => ({ ...e }))
       };
     },
 

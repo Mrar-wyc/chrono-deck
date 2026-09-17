@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { estimateLabelWidth, laneCount, layoutChips, pickSpan } from '../src/ui/timeline';
+import { MAX_LANES, estimateLabelWidth, laneCount, layoutAxis, layoutChips, pickSpan } from '../src/ui/timeline';
 import type { TimelineEntry } from '../src/engine/types';
 
 /**
@@ -61,6 +61,48 @@ describe('窗口跨度', () => {
 
   it('已经过去的条目不影响跨度', () => {
     expect(pickSpan([entry(-50, '过去')], NOW)).toBe(150);
+  });
+});
+
+describe('行数上限', () => {
+  /*
+   * 舞台是固定 720px 且 overflow: hidden，轴又是 flex-shrink: 0 ——
+   * 行数一多它就会去挤下面的区域，最终把装着「结束回合」的那一条推出舞台，
+   * 玩家既看不到手牌也点不到按钮。所以行数必须有上限。
+   */
+  it('同刻条目超过上限时合并成汇总块，而不是无限长高', () => {
+    const many = Array.from({ length: 12 }, () => entry(100, '标签'));
+    const layout = layoutAxis(many, NOW, SPAN, WIDTH);
+
+    expect(layout.lanes, `行数不得超过 ${MAX_LANES}`).toBeLessThanOrEqual(MAX_LANES);
+    expect(layout.chips.length).toBe(MAX_LANES);
+    expect(layout.hidden, '其余条目应当被汇总').toBe(12 - MAX_LANES);
+    expect(layout.hiddenFrom, '汇总块放在被省略的最早时刻').toBe(100);
+  });
+
+  it('没超过上限时不产生汇总块，也不丢任何条目', () => {
+    const few = Array.from({ length: 3 }, () => entry(100, '短'));
+    const layout = layoutAxis(few, NOW, SPAN, WIDTH);
+
+    expect(layout.hidden).toBe(0);
+    expect(layout.hiddenFrom).toBeNull();
+    expect(layout.chips.length).toBe(3);
+    expect(layout.lanes).toBe(3);
+  });
+
+  it('刚好等于上限时也不汇总', () => {
+    const exact = Array.from({ length: MAX_LANES }, () => entry(100, '标签'));
+    const layout = layoutAxis(exact, NOW, SPAN, WIDTH);
+    expect(layout.hidden).toBe(0);
+    expect(layout.lanes).toBe(MAX_LANES);
+  });
+
+  it('轴高度无论多少条目都留在预算内', () => {
+    // 每行 32px + 26px 头部，五行是 186px —— 远低于会挤掉操作区的量级
+    const many = Array.from({ length: 40 }, () => entry(50, '很长的标签名字在这里'));
+    const layout = layoutAxis(many, NOW, SPAN, WIDTH);
+    const height = layout.lanes * 32 + 26;
+    expect(height).toBeLessThan(220);
   });
 });
 

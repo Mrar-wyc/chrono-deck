@@ -66,6 +66,16 @@ const BRACE: EnemyMoveDef = {
   effects: [{ t: 'block', amount: 5 }]
 };
 
+/** 只有一招、且带自身行动值提前的敌人，用来验证 selfAv 真的生效 */
+const HASTE_ONLY: EnemyMoveDef = {
+  id: 'haste',
+  name: '加速',
+  intent: '加速',
+  text: '自身行动值 -30',
+  av: 100,
+  effects: [{ t: 'selfAv', amount: -30 }]
+};
+
 function foe(hp = 100, speed = 100, name = '木桩'): EnemyDef {
   return { id: `dummy_${name}`, name, hp, speed, moves: [SWIPE, BRACE] };
 }
@@ -285,6 +295,153 @@ describe('挂刻', () => {
       .filter((e) => e.k === 'discard')
       .flatMap((e) => (e.k === 'discard' ? e.cards : []));
     expect(discarded, '引爆之后应当有一声归档播报').toContain(bomb.uid);
+  });
+});
+
+describe('敌我状态与轴的可见性', () => {
+  it('敌人的「自身行动值提前」真的会生效', () => {
+    /*
+     * 这条守的是一个真实翻过的车：`advance()` 在调用 runEnemyTurn 之前就把敌人
+     * 当前的行动条目从轴上摘掉了，而原来要到结算完这一招才排下一条 ——
+     * 于是效果里的 selfAv 调 nextTurnEntryFor(自己) 什么都找不到，**静默失效**。
+     * 抢拍体的「加速 -30」与失序使的「倒拨 -40」因此从未生效过，
+     * 而它们的招式轮转表还明明白白展示给玩家。
+     *
+     * 算术：敌人步频 100、招式 av 100 → 出手后把下一次排在 200，再被提前 30 到 170。
+     * 这里断言 shift 事件本身，而不是轴上的最终值 —— 后者会被后续连锁影响，
+     * 而 shift 事件的 from/to 直接就是这个机制有没有跑起来的证据。
+     */
+    const hasteFoe: EnemyDef = {
+      id: 'haste_foe',
+      name: '抢拍体',
+      hp: 300,
+      speed: 100,
+      moves: [HASTE_ONLY]
+    };
+    const battle = createBattle(input(buildDeck(8, HIT), [hasteFoe]));
+
+    // 第一次结束回合只是走到玩家第二回合（双方同在 100，玩家先手），敌人还没出手
+    battle.endTurn();
+    const step = battle.endTurn();
+
+    expect(
+      step.events.some((e) => e.k === 'turnStart' && e.unit === 'e0'),
+      '这一步里敌人应当出手了'
+    ).toBe(true);
+
+    const shifted = step.events.find((e) => e.k === 'shift' && e.unit === 'e0');
+    expect(shifted, 'selfAv 完全没有产生 shift 事件 —— 它又空转了').toBeDefined();
+    if (shifted?.k === 'shift') {
+      expect(shifted.from, '出手后下一次本应排在 200').toBe(200);
+      expect(shifted.to, '提前 30 之后应当是 170').toBe(170);
+    }
+  });
+
+  it('阵亡的敌人不会在时序轴上留下幽灵条目', () => {
+    /*
+     * 敌人阵亡时它在轴上的下一次行动不会被摘掉 —— 只会在时钟走到那一刻被顺手弹出，
+     * 而如果那一击正好结束了战斗，时钟甚至不会再走，这条就永远留着。
+     * 玩家会在一具尸体的位置看到它的下一步行动。
+     */
+    const battle = createBattle(
+      input([inst(def({ id: 'nuke', cost: 0, effects: [{ t: 'damage', amount: 999 }] })), inst(HIT)], [
+        foe(50, 100, '甲'),
+        foe(50, 100, '乙')
+      ])
+    );
+    const doomed = battle.view().enemies[0]!.id;
+    const survivor = battle.view().enemies[1]!.id;
+
+    battle.playCard(handCard(battle, 'nuke').uid, doomed);
+
+    const timeline = battle.view().timeline;
+    expect(
+      timeline.some((e) => e.owner === doomed),
+      '阵亡敌人的行动条目不该出现在玩家看到的轴上'
+    ).toBe(false);
+    expect(
+      timeline.some((e) => e.owner === survivor),
+      '活着的敌人应当仍然留在轴上'
+    ).toBe(true);
+    expect(
+      timeline.some((e) => e.owner === 'player'),
+      '自己的条目当然不受影响'
+    ).toBe(true);
+  });
+
+  it('阵亡之后轴的过滤对后续事件同样成立', () => {
+    // 再走一步，确认不是只在击杀的那一帧对
+    const battle = createBattle(
+      input(buildDeck(8, HIT), [foe(1, 100, '甲'), foe(200, 100, '乙')])
+    );
+    const doomed = battle.view().enemies[0]!.id;
+    battle.playCard(handCard(battle, 'hit').uid, doomed);
+    expect(battle.view().enemies.length).toBe(1);
+    battle.endTurn();
+
+    expect(
+      battle.view().timeline.some((e) => e.owner === doomed),
+      '推进一个回合后，尸体的条目又冒出来了'
+    ).toBe(false);
+  });
+
+  it('招式 av 很小而 selfAv 很大的敌人也不会把时钟卡住', () => {
+    /*
+     * 极端构造：间隔只有 10，却每次都把自己提前 999。
+     *
+     * 修复前：时间轴操作的下限是「当前时刻」，于是它的下一次行动被钳在 now，
+     * 到了 now 又钳回 now —— 在同一个行动值上反复出手，advance() 空转到
+     * MAX_STEPS 才 break，时钟冻住、playerActing 为 false，玩家再怎么点都被
+     * 「现在不是你的回合」弹回来，整局死锁。
+     *
+     * 断言对准两件事：时钟真的走了很远（而不是冻在某一格），以及玩家仍然能行动。
+     */
+    const twitchy: EnemyDef = {
+      id: 'twitchy',
+      name: '抽动体',
+      // 血量给到打不完，这样十二个回合都会跑满 —— 否则玩家三个回合就把它打死，
+      // 时钟自然停在 200，断言就测不到「持续前进」这件事
+      hp: 5000,
+      speed: 100,
+      moves: [
+        {
+          id: 'twitch',
+          name: '抽动',
+          intent: '抽动',
+          text: '自身行动值 -999',
+          av: 10,
+          effects: [{ t: 'selfAv', amount: -999 }]
+        }
+      ]
+    };
+    const battle = createBattle(input(buildDeck(20, HIT), [twitchy]));
+
+    for (let i = 0; i < 12 && !battle.isOver(); i++) {
+      for (const card of [...battle.view().hand]) {
+        if (card.def.cost <= battle.view().energy) battle.playCard(card.uid);
+      }
+      battle.endTurn();
+    }
+
+    // 玩家每回合推进 100 行动值，12 个回合就是 1200。
+    // 修复前它会被钳在第一个行动值上，advance() 空转到 MAX_STEPS 才 break，
+    // 时钟冻住、玩家再也点不动（playCard 一律回「现在不是你的回合」）
+    expect(battle.view().now, '时钟必须持续前进，而不是冻在某一格').toBeGreaterThan(1000);
+    if (!battle.isOver()) {
+      expect(
+        battle.view().energy,
+        '玩家被锁死了：玩家的回合没能开起来（energy 只在回合开始时发放）'
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it('两个敌人同时在场时，轴上两边都有条目', () => {
+    // 反向确认：过滤只对死人生效，不会把活着的敌人一起滤掉
+    const battle = createBattle(input(buildDeck(6, HIT), [foe(80, 100, '甲'), foe(80, 100, '乙')]));
+    const owners = new Set(battle.view().timeline.map((e) => e.owner));
+    expect(owners.has('e0')).toBe(true);
+    expect(owners.has('e1')).toBe(true);
+    expect(owners.has('player')).toBe(true);
   });
 });
 
@@ -547,6 +704,73 @@ describe('终局', () => {
     const out = simulateBattle(input(buildDeck(20, HIT), [foe(200, 100)]), greedyPolicy);
     expect(['win', 'lose']).toContain(out.result);
     expect(out.events.some((e) => e.k === 'end')).toBe(true);
+  });
+});
+
+// ==================== 输入校验 ====================
+
+describe('战斗输入校验', () => {
+  /*
+   * 这些值平时来自 content/player.ts 的冻结常量与内容表，看起来不会出错 ——
+   * 但引擎是公开 API，测试与未来的单局流程都会直接构造 BattleInput。
+   * 不合法的值不会报错，只会让引擎进入一个「时钟走不动」「同一张牌被静默吞掉」
+   * 的状态，排查成本远高于在这里拦下来。
+   */
+  const deck = (): CardInstance[] => buildDeck(4, HIT);
+  const raw = (over: Partial<BattleInput> = {}): BattleInput => ({
+    seed: 1,
+    player: PLAYER,
+    enemies: [foe()],
+    deck: deck(),
+    ...over
+  });
+
+  it('合法的输入不抛错', () => {
+    expect(() => createBattle(raw())).not.toThrow();
+  });
+
+  it('拒绝零敌人（否则空数组的 every 恒真，一开局就被判胜）', () => {
+    expect(() => createBattle(raw({ enemies: [] }))).toThrow(/至少需要一个敌人/);
+  });
+
+  it('拒绝空牌组', () => {
+    expect(() => createBattle(raw({ deck: [] }))).toThrow(/至少需要一张刻印/);
+  });
+
+  it('拒绝非正的步频（会让行动间隔退化成一万行动值，表现为时间轴卡住）', () => {
+    expect(() => createBattle(raw({ player: { ...PLAYER, speed: 0 } }))).toThrow(/步频/);
+    expect(() => createBattle(raw({ player: { ...PLAYER, speed: -10 } }))).toThrow(/步频/);
+    expect(() => createBattle(raw({ player: { ...PLAYER, speed: 1.5 } }))).toThrow(/步频/);
+  });
+
+  it('拒绝非正的稳定度上限与手牌/时能的下限', () => {
+    expect(() => createBattle(raw({ player: { ...PLAYER, maxHp: 0 } }))).toThrow(/稳定度上限/);
+    expect(() => createBattle(raw({ player: { ...PLAYER, handSize: -1 } }))).toThrow(/手牌上限/);
+    expect(() => createBattle(raw({ player: { ...PLAYER, energyPerTurn: -1 } }))).toThrow(/每回合时能/);
+  });
+
+  it('拒绝敌人身上不合法的数值', () => {
+    expect(() => createBattle(raw({ enemies: [{ ...foe(), hp: 0 }] }))).toThrow(/血量/);
+    expect(() => createBattle(raw({ enemies: [{ ...foe(), speed: 0 }] }))).toThrow(/步频/);
+    expect(() => createBattle(raw({ enemies: [{ ...foe(), moves: [] }] }))).toThrow(/没有任何招式/);
+  });
+
+  it('拒绝重复的刻印 uid（会让一张牌被静默吞掉：时能花了，什么都没发生）', () => {
+    // 注意要绕过 input() 的 uid 归一化，直接构造
+    expect(() =>
+      createBattle(raw({ deck: [{ uid: 'same', def: HIT }, { uid: 'same', def: HIT }] }))
+    ).toThrow(/uid 重复/);
+  });
+
+  it('拒绝挂刻牌缺失或非正的 delay（会让时钟倒流）', () => {
+    const noDelay = def({ id: 'bad', kind: 'deferred', effects: [{ t: 'damage', amount: 20 }] });
+    expect(() => createBattle(raw({ deck: [{ uid: 'a', def: noDelay }] }))).toThrow(/delay/);
+
+    const zeroDelay = def({ id: 'bad2', kind: 'deferred', delay: 0, effects: [{ t: 'damage', amount: 20 }] });
+    expect(() => createBattle(raw({ deck: [{ uid: 'a', def: zeroDelay }] }))).toThrow(/delay/);
+
+    const negativeDelay = def({ id: 'bad3', kind: 'deferred', delay: -5, effects: [{ t: 'damage', amount: 20 }] });
+    expect(() => createBattle(raw({ deck: [{ uid: 'a', def: negativeDelay }] }))).toThrow(/delay/);
   });
 });
 

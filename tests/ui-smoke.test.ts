@@ -2,6 +2,7 @@
 // @vitest-environment-options {"html":"<!DOCTYPE html><html><body><div id=\"app\"></div></body></html>","url":"http://localhost:3000/?debug"}
 import { describe, expect, it, vi } from 'vitest';
 import { REWARD_CARDS, STARTER_DECK } from '../src/content/cards';
+import { renderAxis } from '../src/ui/timeline';
 import '../src/main';
 
 /**
@@ -72,11 +73,18 @@ function interactive(): boolean {
   return !!btn && !btn.disabled;
 }
 
-/** 点「跳过」把等待归零，否则一场战斗要跑十几秒 */
+/**
+ * 点「跳过」把等待归零，否则一场战斗要跑十几秒。
+ *
+ * 注意它只在回放进行中有效（这是刻意的：播放之外点击不再 latch 给下一次），
+ * 所以必须在触发动作**之后**立刻点。
+ */
 function skipAnimation(): void {
-  const skip = buttons().find((b) => (b.textContent ?? '').includes('跳过'));
+  const skip = buttons().find((b) => (b.textContent ?? "").includes("跳过"));
   skip?.click();
 }
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 function resultShown(): boolean {
   return document.querySelector('.battle-result:not(.hide)') !== null;
@@ -97,8 +105,6 @@ function playFirstCard(): boolean {
   if (target) target.click();
   return true;
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 describe('界面冒烟', () => {
   it('启动后停在标题界面，并显示版本号', () => {
@@ -233,6 +239,32 @@ describe('界面冒烟', () => {
     expectNoCrash();
   });
 
+  it('倍速按钮的高亮会跟着切换', async () => {
+    /*
+     * 守一个真实翻过的车：data-sp 原本是事后从 textContent（"1×"）里取的，
+     * 而 Number("1×") 是 NaN —— 于是高亮比较恒为假，点任何倍速都会把
+     * 三个按钮的高亮全清掉，玩家看不出当前是几倍速。
+     * 这三个按钮属于持久化的外壳，不随战斗重绘，所以可以持有引用。
+     */
+    const sp = [...document.querySelectorAll<HTMLElement>('.battle-speed .sp')];
+    expect(sp.length, '应当有三个倍速按钮').toBe(3);
+    const lit = (): (string | undefined)[] =>
+      sp.filter((b) => b.classList.contains('on')).map((b) => b.dataset.sp);
+
+    expect(lit(), '默认应当是 2× 高亮').toEqual(['2']);
+
+    sp.find((b) => b.dataset.sp === '4')!.click();
+    expect(lit(), '点 4× 之后只应有 4× 高亮').toEqual(['4']);
+
+    sp.find((b) => b.dataset.sp === '1')!.click();
+    expect(lit(), '点 1× 之后只应有 1× 高亮').toEqual(['1']);
+
+    // 换回 2×，免得影响后面测试的节奏
+    sp.find((b) => b.dataset.sp === '2')!.click();
+    expect(lit()).toEqual(['2']);
+    expectNoCrash();
+  });
+
   it('出牌会扣时能、并让敌人掉血或自己变强', async () => {
     const energyBefore = Number(
       (document.querySelector('.battle-side')?.textContent ?? '').match(/时能 (\d+)/)?.[1] ?? '-1'
@@ -240,6 +272,7 @@ describe('界面冒烟', () => {
     const foeHpBefore = document.querySelector('.foe-card .stat-num')?.textContent ?? '';
 
     expect(playFirstCard(), '起手应当有打得出的牌').toBe(true);
+    skipAnimation();
     await waitFor(interactive, '出牌后回到可操作状态');
 
     const energyAfter = Number(
@@ -255,8 +288,8 @@ describe('界面冒烟', () => {
 
   it('结束回合会推进时序，敌人随后行动', async () => {
     const before = text();
-    skipAnimation();
     clickText('结束回合');
+    skipAnimation();
     await waitFor(interactive, '推进一个回合后回到可操作状态');
 
     expect(text()).not.toBe(before);
@@ -265,14 +298,23 @@ describe('界面冒烟', () => {
   });
 
   it('一直打到分出胜负，能看到结算浮层', async () => {
+    /*
+     * 这个循环刻意**只用轮询**，不套 waitFor：回放中「结束回合」按钮不存在、
+     * 也不会出现可点的目标，所以它自然就在等；而一旦战斗结束，任何等待都会
+     * 走到超时才返回 —— 那会把一个几秒的用例拖成几十秒。
+     */
     for (let i = 0; i < 400 && !resultShown(); i++) {
-      skipAnimation();
       const target = document.querySelector<HTMLElement>('.foe-card.targetable');
       if (target) {
         target.click();
+        skipAnimation(); // 只在回放中生效，所以必须在动作之后点
       } else if (interactive()) {
         // 有牌就出，没牌就过回合。策略固定，所以这一局的走法完全可复现
-        if (!playFirstCard()) clickText('结束回合');
+        if (playFirstCard()) skipAnimation();
+        else {
+          clickText('结束回合');
+          skipAnimation();
+        }
       }
       await sleep(8);
     }
@@ -316,6 +358,33 @@ describe('界面冒烟', () => {
    * （拿不到新闭包里的 fitStage），页面整体显示为空白且没有任何报错。
    * 这条断言要求 main.ts 可以安全地重复执行。
    */
+  it('时序轴画到行数上限时会多出一条汇总块', () => {
+    /*
+     * 纯函数那条路径在 tests/timeline.test.ts 里测过了，但「算得对」不等于「画得出来」——
+     * 汇总块是一段新的 DOM，这里直接调渲染函数确认它真的出现，并且轴的高度守在预算内。
+     */
+    const host = document.createElement('div');
+    document.body.append(host);
+    const entries = Array.from({ length: 12 }, (_, i) => ({
+      id: `t${i}`,
+      owner: 'player',
+      side: 'ally' as const,
+      at: 100,
+      kind: 'turn' as const,
+      label: '同刻标签'
+    }));
+    renderAxis(host, entries, 0, 1200);
+
+    const chips = host.querySelectorAll('.ax-chip');
+    const lanes = new Set([...chips].map((c) => (c as HTMLElement).style.top)).size;
+    expect(lanes, '行数必须被压在上限内').toBeLessThanOrEqual(5);
+    expect(host.querySelector('.ax-chip.k-more')?.textContent, '超出的条目应当合并成汇总块').toMatch(
+      /另有 \d+ 项/
+    );
+    expect(host.querySelector('.ax-window')!.getBoundingClientRect().height >= 0).toBe(true);
+    host.remove();
+  });
+
   it('main.ts 重复执行不会叠出第二个舞台', async () => {
     expect(document.querySelectorAll('.stage').length).toBe(1);
 
