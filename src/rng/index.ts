@@ -100,7 +100,7 @@ export function createRng(seed: number): Rng {
       return createRng(a);
     },
     derive(label: string): Rng {
-      return createRng(hashSeed(`${a >>> 0}:${label}`));
+      return createRng(deriveSeed(a, label));
     }
   };
   return rng;
@@ -123,6 +123,17 @@ export function hashSeed(text: string): number {
 export function formatSeed(seed: number): string {
   const hex = (seed >>> 0).toString(16).toUpperCase().padStart(8, '0');
   return `${hex.slice(0, 4)}-${hex.slice(4)}`;
+}
+
+/**
+ * 从一个种子派生出子种子。
+ *
+ * 同一份种子配不同标签得到互不相干的子种子，于是「本局的地图」「本局的牌序」
+ * 「某一场战斗」各有各的随机流：改动其中一个的消耗次数，不会连锁改变其他部分。
+ * 没有这一层的话，加一张牌就会让所有历史种子全变样，种子分享也就失去了意义。
+ */
+export function deriveSeed(seed: number, label: string): number {
+  return hashSeed(`${seed >>> 0}:${label}`);
 }
 
 /**

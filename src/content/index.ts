@@ -2,6 +2,8 @@ import type { CardDef, Effect, EncounterDef, EnemyDef } from '../engine/types';
 import { STARTER_CARDS, REWARD_CARDS, STARTER_DECK } from './cards';
 import { ENEMIES, ENCOUNTERS } from './enemies';
 
+export { PLAYER } from './player';
+
 /**
  * 内容注册表与校验。
  *
@@ -151,8 +153,14 @@ export function validateContent(): ContentIssue[] {
     }
 
     if (c.kind === 'shift') {
+      // 校正只操作时间轴：提前/推后、取消、拉回挂刻，以及改变步频（步频是时间轴的属性）
       const onlyTime = c.effects.every(
-        (e) => e.t === 'selfAv' || e.t === 'targetAv' || e.t === 'cancel' || e.t === 'rush'
+        (e) =>
+          e.t === 'selfAv' ||
+          e.t === 'targetAv' ||
+          e.t === 'cancel' ||
+          e.t === 'rush' ||
+          e.t === 'speed'
       );
       if (!onlyTime) issues.push({ where, msg: '校正牌只应操作时间轴，不应含伤害/格挡等效果' });
     }

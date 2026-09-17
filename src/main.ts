@@ -1,11 +1,15 @@
 import './style.css';
-import { newSeed } from './rng';
-import type { AppCtx, Screen } from './ui/ctx';
+import { ENCOUNTERS } from './content/enemies';
+import { formatSeed, newSeed } from './rng';
+import { buildBattleInput } from './run/battle-setup';
 import { renderAbout } from './ui/about';
+import { createBattleScreen } from './ui/battle';
+import type { BattleController } from './ui/battle';
 import { renderCrash } from './ui/crash';
+import type { AppCtx, RunSetup, Screen } from './ui/ctx';
+import { h } from './ui/dom';
 import { renderMenu } from './ui/menu';
 import { renderSetup } from './ui/setup';
-import { h } from './ui/dom';
 import { STAGE_H, STAGE_W } from './ui/stage';
 
 const app = document.getElementById('app');
@@ -23,6 +27,22 @@ app.append(stage);
 
 let screen: Screen = 'menu';
 let seed = newSeed();
+
+/**
+ * 筹备界面的选择。它是「进入时标」时构造 BattleInput 的全部依据，
+ * 所以和种子一样属于本局的输入 —— 三者合起来决定一场完全可复现的战斗。
+ */
+const setup: RunSetup = {
+  encounterId: ENCOUNTERS[0]!.id,
+  picked: []
+};
+
+/**
+ * 战斗界面是**持久 DOM**：它一旦挂载就不再被清空重建，
+ * 整块的渲染由它自己同步（见 ui/battle.ts 的说明）。
+ * 所以这里要记住当前那一个控制器，切屏时再丢掉。
+ */
+let battleController: BattleController | null = null;
 
 /** 把舞台等比缩放到窗口内。舞台是固定逻辑尺寸，界面代码不需要写响应式 */
 function fitStage(): void {
@@ -48,15 +68,50 @@ const ctx: AppCtx = {
     ctx.refresh();
   },
   go(next: Screen): void {
+    if (next !== 'battle') battleController = null;
     screen = next;
     ctx.refresh();
   },
   refresh(): void {
     render();
+  },
+  startBattle(): void {
+    const input = buildBattleInput({
+      seed,
+      encounterId: setup.encounterId,
+      extraCardIds: setup.picked
+    });
+    if (input.enemies.length === 0) {
+      // 遭遇引用坏了就说清楚，不要进到一场没有敌人的战斗里
+      screen = 'crash';
+      stage.replaceChildren();
+      renderCrash(stage, `遭遇 ${setup.encounterId} 没有任何敌人，请检查 content/enemies.ts`, ctx);
+      return;
+    }
+
+    battleController = createBattleScreen(input, {
+      seedLabel: formatSeed(seed),
+      onDone: () => {
+        battleController = null;
+        screen = 'setup';
+        ctx.refresh();
+      }
+    });
+    screen = 'battle';
+    ctx.refresh();
   }
 };
 
 function render(): void {
+  // 战斗界面自己管自己：不重建，只让它继续同步
+  if (screen === 'battle' && battleController) {
+    if (!stage.contains(battleController.root)) {
+      stage.replaceChildren(battleController.root);
+      void battleController.start();
+    }
+    return;
+  }
+
   stage.replaceChildren();
   try {
     switch (screen) {
@@ -64,7 +119,7 @@ function render(): void {
         renderMenu(stage, ctx);
         break;
       case 'setup':
-        renderSetup(stage, ctx);
+        renderSetup(stage, ctx, setup);
         break;
       case 'about':
         renderAbout(stage, ctx);
@@ -72,12 +127,18 @@ function render(): void {
       case 'crash':
         renderCrash(stage, '（此处本应有一条错误信息）', ctx);
         break;
+      case 'battle':
+        // 没有控制器却停在 battle：退回筹备，别把玩家卡在空屏上
+        screen = 'setup';
+        renderSetup(stage, ctx, setup);
+        break;
     }
   } catch (err) {
     // 渲染失败时保留玩家数据并显示可读的错误，见 ui/crash.ts 的说明
     const msg = err instanceof Error ? `${err.message}\n\n${err.stack ?? ''}` : String(err);
     console.error('[render] 界面渲染失败', err);
     screen = 'crash';
+    battleController = null;
     stage.replaceChildren();
     renderCrash(stage, msg, ctx);
   }
@@ -94,6 +155,9 @@ if (new URLSearchParams(location.search).has('debug')) {
     },
     get screen(): Screen {
       return screen;
+    },
+    get setup(): RunSetup {
+      return setup;
     },
     go: (s: Screen) => ctx.go(s)
   };

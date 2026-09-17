@@ -16,7 +16,7 @@ Cards don't resolve immediately. You place them onto a public timeline, where th
 
 ---
 
-> **Status: the M0 skeleton is done.** The timeline combat arrives in milestone M1 — the "Enter the timeline" button on the setup screen is deliberately disabled rather than pretending to work. Seed codes can already be generated, copied, typed in, and the full card dataset browsed.
+> **Status: milestone M1 (combat core) is done — a full battle is playable.** Timeline scheduler, event-stream engine, timeline UI, 30 seals, 7 encounters. Pick an encounter and a sideboard on the setup screen, then fight to a decision. The run loop (map, rewards, shop, saves) lands in M2.
 
 ## What it is
 
@@ -30,13 +30,26 @@ An original-IP card game built around one idea: a **public timeline**. Cards don
 | **Deferred** | Scheduled on the timeline, fires after a delay | You're betting the situation still holds |
 | **Shift** | Manipulates the timeline only, deals no damage | Doesn't solve the current problem |
 
-Deferred cards are strictly more efficient per energy than instant ones (Frost Strike: 1 energy for 14 damage, versus Calibrate: 1 energy for 6). That gap is the entire reason a player would accept the delay.
+Deferred cards are strictly more efficient per energy than instant ones (Frost Strike: 1 energy for 12 damage, versus Calibrate: 1 energy for 6). That gap is the entire reason a player would accept the delay.
 
 ### Why it's a solvable puzzle
 
-The timeline is fully visible, including where the enemy's next action lands. A seal you detonate after 60 action points either beats the enemy's next action at 100, or it doesn't — and if it doesn't, you take the hit first. Shift cards let you reorder that: act sooner, push the enemy back, cancel an action already on the axis, or pull a scheduled seal forward.
+The timeline is fully visible, including where the enemy's next action lands and what it will do for the next few turns (its move rotation is printed right on its card). A seal you detonate after 60 action points either beats the enemy's next action at 110, or it doesn't — and if it doesn't, you take the hit first.
+
+Shift cards let you reorder that: act sooner, push the enemy back, cancel an action already on the axis, or pull a scheduled seal forward. **Resolution order at the same action point is: deferred seals, then you, then enemies** — so "landing exactly one tick before the enemy" is computable and reproducible.
 
 Baseline: a unit with tempo 100 acts once every 100 action points.
+
+### Measured difficulty curve
+
+Bot win rates over 40 seeded matches per tier (`tests/balance.test.ts`):
+
+| Tier | Encounter | Win rate |
+|---|---|---|
+| Single normal (tutorial) | Debris / Lagging / Rusher / Corroder | 100% |
+| Group normal | Twin Debris | 95% |
+| Elite | Corroder & Debris | 40% |
+| Boss | Disjoiner | 18% |
 
 ## Running it
 
@@ -70,19 +83,21 @@ Imports flow strictly one way: `content → engine → run → ui`. The rules la
 ```
 src/
   rng/        Seeded RNG. Global randomness is banned project-wide, enforced by a guard test
-  engine/     Pure rules: type contract, timeline scheduling, effect resolution, enemy AI
+  engine/     Pure rules: type contract, timeline scheduling, effect resolution, bot policy
   content/    Data tables: seals, aberrations, encounters. This is where long-term work happens
-  run/        Single-run state machine: map, rewards, shop, saves
-  replay/     Action log, replay runner, state hashing
-  ui/         Screens, stage scaling, card rendering
-tests/        Unit tests + cross-file guards + UI smoke
+  run/        Battle assembly (seeded shuffle → BattleInput); wired into a full run in M2
+  replay/     State hashing and canonical serialisation
+  ui/         Screens, stage scaling, the timeline axis, the battle screen
+tests/        Engine rules + timeline layout + balance regression + soak + UI smoke + guards
 ```
 
-## Two design decisions worth calling out
+## Three decisions worth calling out
 
-**Seeded randomness is a first-class citizen.** Every random draw goes through an injected `Rng`; there is not a single global random call in the source (a guard test greps for it, comments included). The payoff: same seed plus same inputs always reproduces the same result, so replays, bug reports, seed sharing, and noise-free balance measurement all come for free. A future "daily shared seed" mode needs no architectural change.
+**Seeded randomness is a first-class citizen.** Every random draw goes through an injected `Rng`; there is not a single global random call in the source (a guard test greps for it, comments included). The payoff: same seed plus same inputs always reproduces the same result, so replays, bug reports, seed sharing, and noise-free balance measurement all come for free. One test literally records a match's actions and replays them, asserting the event streams are identical line for line.
 
 **Content lookups never throw.** A save or replay referencing a deleted id returns `undefined`; the UI renders a placeholder card instead of white-screening. Projects that let lookups throw tend to accumulate more defensive code than feature code — better not to create the need.
+
+**The engine is step-driven and the UI only replays events.** The engine emits `BattleEvent[]`; the UI plays them in order — rules changes don't touch the UI, and UI changes don't touch the rules. That also makes numeric tuning fully headless: bots play hundreds of matches to produce comparable win rates, and `DIAG=1` dumps a whole match turn by turn for a human to read.
 
 ## Contributing
 

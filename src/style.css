@@ -525,3 +525,671 @@ body {
   opacity: 1;
   transform: translate(-50%, 0);
 }
+
+/* ==================== 筹备界面：遭遇与选牌 ==================== */
+
+.enc-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.enc-btn {
+  appearance: none;
+  font-family: var(--font);
+  font-size: 15.5px;
+  line-height: 1;
+  padding: 11px 15px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--card-deep);
+  color: var(--txt-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.enc-btn:hover {
+  border-color: var(--brass);
+  color: var(--txt);
+}
+
+.enc-btn.on {
+  border-color: var(--brass);
+  background: var(--card-deep-2);
+  color: var(--brass-soft);
+}
+
+.enc-btn .enc-kind {
+  font-size: 13.5px;
+  color: var(--txt-soft);
+  margin-left: 6px;
+}
+
+.enc-btn.on .enc-kind {
+  color: var(--brass);
+}
+
+/* 可加入牌组的奖励刻印：整行可点，选中时右侧出现标记 */
+.card-row.pickable {
+  cursor: pointer;
+  transition: border-color 0.14s, background 0.14s;
+}
+
+.card-row.pickable:hover {
+  border-color: var(--brass);
+}
+
+.card-row.picked {
+  border-color: var(--brass);
+  background: var(--card-deep-2);
+}
+
+.pick-mark {
+  font-size: 14px;
+  color: var(--brass-soft);
+  white-space: nowrap;
+}
+
+.deck-note {
+  font-size: 15.5px;
+  color: var(--txt-dim);
+}
+
+.deck-note strong {
+  color: var(--brass-soft);
+  font-weight: 600;
+}
+
+/* ==================== 战斗界面 ==================== */
+
+.battle {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 32px 16px;
+}
+
+.battle-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.battle-title {
+  font-size: 17px;
+  color: var(--brass-soft);
+  letter-spacing: 2px;
+}
+
+.battle-speed {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.battle-speed .sp.on {
+  border-color: var(--brass);
+  color: var(--brass-soft);
+}
+
+/* ---------- 时序轴 ---------- */
+
+.battle-axis {
+  flex-shrink: 0;
+}
+
+.ax-window {
+  position: relative;
+  /* 必须与 src/ui/timeline.ts 的 AXIS_WIDTH 一致，由守卫测试断言 */
+  width: 1376px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: linear-gradient(180deg, #121a2a 0%, #0e1522 100%);
+}
+
+.ax-tick {
+  position: absolute;
+  top: 20px;
+  bottom: 0;
+  width: 1px;
+  background: var(--line-soft);
+}
+
+.ax-tick.major {
+  background: var(--brass);
+  opacity: 0.7;
+}
+
+.ax-tick-label {
+  position: absolute;
+  top: 3px;
+  font-size: 13.5px;
+  color: var(--txt-soft);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.ax-tick-label.major {
+  transform: none;
+  color: var(--brass);
+}
+
+.ax-chip {
+  position: absolute;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.ax-chip-av {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.65;
+}
+
+.ax-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ax-chip.k-turn.side-ally {
+  color: var(--ally);
+  background: #16243a;
+}
+
+.ax-chip.k-turn.side-foe {
+  color: var(--foe);
+  background: #2c1a1a;
+}
+
+.ax-chip.k-card {
+  color: var(--chrono);
+  background: #102e2c;
+}
+
+.ax-chip.flash {
+  animation: chip-flash 0.45s ease-out;
+}
+
+@keyframes chip-flash {
+  0% {
+    background: var(--brass);
+    color: var(--ink);
+  }
+  100% {
+    background: inherit;
+  }
+}
+
+.ax-legend {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+
+.ax-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  color: var(--txt-dim);
+}
+
+.ax-legend-item .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.ax-legend-item .dot.k-turn.side-ally {
+  background: var(--ally);
+}
+
+.ax-legend-item .dot.k-turn.side-foe {
+  background: var(--foe);
+}
+
+.ax-legend-item .dot.k-card {
+  background: var(--chrono);
+}
+
+/* ---------- 敌我 ---------- */
+
+.battle-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 20px;
+}
+
+/* 面板撑满 battle-body 的高度：卡片只占上半截的话，中间会空出一条带状死区 */
+.battle-side {
+  width: 290px;
+  flex-shrink: 0;
+  display: flex;
+}
+
+.battle-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.side-block,
+.foe-card {
+  background: var(--panel-deep);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+}
+
+.side-block {
+  flex: 1;
+}
+
+.foe-card {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 意图贴着卡片底部：卡片高度跟着布局走，信息分布才不散 */
+.foe-intent {
+  margin-top: auto;
+}
+
+.foe-card.targetable {
+  cursor: pointer;
+  border-color: var(--foe);
+  box-shadow: 0 0 0 1px var(--foe) inset;
+}
+
+.foe-card.targetable:hover {
+  background: var(--card-deep-2);
+}
+
+.side-name,
+.foe-name {
+  font-size: 19px;
+  color: var(--txt);
+  margin-bottom: 10px;
+}
+
+.stat-bar {
+  height: 10px;
+  border-radius: 5px;
+  background: #1a2233;
+  overflow: hidden;
+  margin-bottom: 9px;
+}
+
+.stat-fill {
+  height: 100%;
+  background: var(--ally);
+  transition: width 0.25s ease-out;
+}
+
+.stat-fill.foe {
+  background: var(--foe);
+}
+
+.stat-fill.low {
+  background: var(--brass);
+}
+
+.side-line {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 15.5px;
+  color: var(--txt);
+  margin-bottom: 6px;
+}
+
+.side-line.dim {
+  color: var(--txt-dim);
+  font-size: 15.5px;
+}
+
+.stat-num {
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+}
+
+.badge {
+  font-size: 13.5px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.badge.block {
+  color: var(--ally);
+}
+
+.badge.bad {
+  color: var(--foe);
+}
+
+.foe-intent {
+  font-size: 14px;
+  color: var(--txt-dim);
+  margin-top: auto;
+  padding-top: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* ---------- 卡片内的信息块（已挂刻印 / 招式轮转） ---------- */
+
+.panel-sub {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-sub-title {
+  font-size: 13.5px;
+  color: var(--txt-soft);
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.panel-sub-empty {
+  font-size: 14px;
+  color: var(--txt-soft);
+}
+
+.pending-list,
+.move-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.pending-row,
+.move-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--card-deep);
+  border-left: 3px solid transparent;
+}
+
+.pending-row {
+  border-left-color: var(--chrono);
+}
+
+.pending-av,
+.move-av {
+  font-variant-numeric: tabular-nums;
+  color: var(--txt-soft);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.pending-name {
+  color: var(--chrono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-row {
+  border-left-color: var(--line);
+  color: var(--txt-dim);
+}
+
+/* 下一招高亮：玩家唯一需要立刻判断的就是它 */
+.move-row.next {
+  border-left-color: var(--foe);
+  background: #22181a;
+  color: var(--txt);
+}
+
+.move-intent {
+  color: var(--foe);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-row.next .move-intent {
+  color: var(--txt);
+}
+
+.move-av {
+  margin-left: auto;
+}
+
+/* ---------- 手牌 ---------- */
+
+.battle-hand {
+  flex-shrink: 0;
+  display: flex;
+  gap: 20px;
+  align-items: flex-end;
+}
+
+.hand-cards {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.hand-card {
+  width: 196px;
+  min-height: 152px;
+  flex-shrink: 0;
+  background: var(--card-deep);
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 7px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.hand-card.k-instant {
+  border-left-color: var(--ally);
+}
+
+.hand-card.k-deferred {
+  border-left-color: var(--chrono);
+}
+
+.hand-card.k-shift {
+  border-left-color: var(--shift);
+}
+
+.hand-card:hover {
+  transform: translateY(-5px);
+  background: var(--card-deep-2);
+}
+
+.hand-card.sel {
+  border-color: var(--brass);
+  transform: translateY(-5px);
+}
+
+.hand-card.off {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.hand-card.off:hover {
+  transform: none;
+}
+
+.hc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 4px;
+}
+
+.hc-cost {
+  font-size: 26px;
+  color: var(--brass-soft);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.hc-name {
+  font-size: 17px;
+  color: var(--txt);
+}
+
+.hc-kind {
+  font-size: 13.5px;
+  color: var(--txt-soft);
+  margin-bottom: 8px;
+}
+
+.hc-text {
+  font-size: 14px;
+  color: var(--txt-dim);
+  line-height: 1.6;
+}
+
+.battle-actions {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+.hint.targeting {
+  font-size: 15.5px;
+  color: var(--brass-soft);
+  text-align: right;
+  line-height: 1.6;
+}
+
+.battle-note {
+  flex-shrink: 0;
+  height: 26px;
+  font-size: 15.5px;
+  color: var(--txt-dim);
+}
+
+/* ---------- 覆盖层动效（只增不减） ---------- */
+
+.battle-fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.fx-float {
+  position: absolute;
+  transform: translate(-50%, 0);
+  font-size: 21px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+
+.fx-float.dmg {
+  color: var(--foe);
+}
+
+.fx-float.blk {
+  color: var(--ally);
+  font-size: 17px;
+}
+
+.fx-float.heal {
+  color: var(--chrono);
+}
+
+.fx-float.bad {
+  color: var(--shift);
+  font-size: 17px;
+}
+
+/* ---------- 结算 ---------- */
+
+.battle-result {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 9, 14, 0.82);
+  z-index: 20;
+}
+
+.battle-result.hide {
+  display: none;
+}
+
+.result-card {
+  width: 620px;
+  background: var(--panel-deep);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 34px 40px 30px;
+  text-align: center;
+}
+
+.result-card.win {
+  border-color: var(--brass);
+}
+
+.result-card.lose {
+  border-color: var(--foe);
+}
+
+.result-title {
+  font-size: 34px;
+  margin: 0 0 14px;
+  letter-spacing: 6px;
+  color: var(--brass-soft);
+}
+
+.result-card.lose .result-title {
+  color: var(--foe);
+}
+
+.result-line {
+  font-size: 17px;
+  color: var(--txt);
+  margin: 0 0 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.result-card .hint {
+  margin-bottom: 22px;
+}
+

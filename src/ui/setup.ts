@@ -1,17 +1,36 @@
 import { cardOr } from '../content';
 import { REWARD_CARDS, STARTER_DECK } from '../content/cards';
+import { ENCOUNTERS } from '../content/enemies';
+import type { EncounterKind } from '../engine/types';
 import { formatSeed, newSeed, parseSeed } from '../rng';
 import { cardRow } from './card-view';
-import type { AppCtx } from './ctx';
+import type { AppCtx, RunSetup } from './ctx';
 import { h, toast } from './dom';
 
 /**
  * 筹备界面。
  *
- * M0 阶段它的职责是把种子系统跑通并可见：生成、显示、复制、手输、重掷。
- * 时序轴战斗在 M1 接上，入口按钮先置灰并说明原因，不做假的可用状态。
+ * 它的职责是给出一场战斗的全部输入：种子、遭遇、额外带的刻印。
+ * 这三种选择合起来就决定了一场完全可复现的战斗，所以这里同时也是
+ * 「分享一个局面」的界面 —— 种子码 + 遭遇名 + 选牌，别人就能打出同一局。
+ *
+ * M1 阶段进入的是单场战斗；M2 会把它接进完整的一局（多场战斗 + 奖励 + 商店）。
  */
-export function renderSetup(root: HTMLElement, ctx: AppCtx): void {
+
+const KIND_LABEL: Record<EncounterKind, string> = {
+  normal: '普通',
+  elite: '精英',
+  boss: '首领'
+};
+
+/** 最多能额外带几张奖励刻印。留出上限才有「带什么」这个取舍 */
+const MAX_PICK = 8;
+
+export function renderSetup(root: HTMLElement, ctx: AppCtx, setup: RunSetup): void {
+  const rerender = (): void => ctx.refresh();
+
+  // ---------- 种子 ----------
+
   const seedInput = h('input', {
     class: 'seed-input',
     type: 'text',
@@ -44,9 +63,58 @@ export function renderSetup(root: HTMLElement, ctx: AppCtx): void {
       .catch(() => toast(code));
   };
 
+  // ---------- 遭遇 ----------
+
+  const encounterRow = h(
+    'div',
+    { class: 'enc-row' },
+    ...ENCOUNTERS.map((enc) =>
+      h(
+        'button',
+        {
+          class: `enc-btn${enc.id === setup.encounterId ? ' on' : ''}`,
+          'data-encounter': enc.id,
+          onclick: () => {
+            setup.encounterId = enc.id;
+            rerender();
+          }
+        },
+        enc.name,
+        h('span', { class: 'enc-kind' }, `${KIND_LABEL[enc.kind]} · ${enc.enemyIds.length} 敌`)
+      )
+    )
+  );
+
+  // ---------- 选牌 ----------
+
+  const picked = new Set(setup.picked);
+  const togglePick = (id: string): void => {
+    if (picked.has(id)) {
+      picked.delete(id);
+    } else if (picked.size >= MAX_PICK) {
+      toast(`最多额外带 ${MAX_PICK} 张刻印`);
+      return;
+    } else {
+      picked.add(id);
+    }
+    setup.picked = [...picked];
+    rerender();
+  };
+
   const starterTotal = STARTER_DECK.reduce((n, e) => n + e.count, 0);
-  const deckRows = STARTER_DECK.map((e) => cardRow(cardOr(e.cardId), e.count));
-  const rewardRows = REWARD_CARDS.map((c) => cardRow(c));
+  const starterRows = STARTER_DECK.map((e) => cardRow(cardOr(e.cardId), e.count));
+  const rewardRows = REWARD_CARDS.map((c) => {
+    const row = cardRow(c);
+    const on = picked.has(c.id);
+    row.classList.add('pickable');
+    if (on) row.classList.add('picked');
+    row.append(h('span', { class: 'pick-mark' }, on ? '已加入' : '点击加入'));
+    row.setAttribute('data-card', c.id);
+    row.addEventListener('click', () => togglePick(c.id));
+    return row;
+  });
+
+  const deckSize = starterTotal + picked.size;
 
   root.append(
     h(
@@ -78,20 +146,10 @@ export function renderSetup(root: HTMLElement, ctx: AppCtx): void {
               { class: 'btn-row' },
               h(
                 'button',
-                {
-                  class: 'btn ghost',
-                  onclick: () => ctx.setSeed(newSeed())
-                },
+                { class: 'btn ghost', onclick: () => ctx.setSeed(newSeed()) },
                 '重掷种子'
               ),
-              h(
-                'button',
-                {
-                  class: 'btn ghost',
-                  onclick: copySeed
-                },
-                '复制'
-              )
+              h('button', { class: 'btn ghost', onclick: copySeed }, '复制')
             )
           ),
           h(
@@ -118,11 +176,16 @@ export function renderSetup(root: HTMLElement, ctx: AppCtx): void {
           { class: 'setup-col right' },
           h(
             'div',
+            { class: 'panel' },
+            h('p', { class: 'panel-label' }, '选择遭遇'),
+            encounterRow
+          ),
+          h(
+            'div',
             { class: 'panel deck-panel' },
             /*
              * 两段卡表放进同一个滚动容器。
-             * 分成两个各自滚动会在有限高度里互相挤，出现两条滚动条且都只露出半行，
-             * 既看不出每段有多少内容，也读不出完整的一行卡面。
+             * 分成两个各自滚动会在有限高度里互相挤，出现两条滚动条且都只露出半行。
              */
             h(
               'div',
@@ -133,12 +196,16 @@ export function renderSetup(root: HTMLElement, ctx: AppCtx): void {
                 '起始刻印',
                 h('span', { class: 'deck-count' }, `　共 ${starterTotal} 张`)
               ),
-              deckRows,
+              starterRows,
               h(
                 'p',
                 { class: 'panel-label section-gap' },
-                '可获得刻印',
-                h('span', { class: 'deck-count' }, `　共 ${REWARD_CARDS.length} 种`)
+                '可额外携带',
+                h(
+                  'span',
+                  { class: 'deck-count' },
+                  `　已选 ${picked.size}/${MAX_PICK}　点击整行加入或移除`
+                )
               ),
               rewardRows
             )
@@ -146,8 +213,19 @@ export function renderSetup(root: HTMLElement, ctx: AppCtx): void {
           h(
             'div',
             { class: 'btn-row' },
-            h('button', { class: 'btn primary', disabled: true }, '进入时标'),
-            h('span', { class: 'hint' }, '时序轴战斗将在 M1 里程碑接入')
+            h(
+              'button',
+              { class: 'btn primary', onclick: () => ctx.startBattle() },
+              '进入时标'
+            ),
+            h(
+              'span',
+              { class: 'deck-note' },
+              '牌组 ',
+              h('strong', {}, String(deckSize)),
+              ' 张　遭遇 ',
+              h('strong', {}, ENCOUNTERS.find((e) => e.id === setup.encounterId)?.name ?? '?')
+            )
           )
         )
       )

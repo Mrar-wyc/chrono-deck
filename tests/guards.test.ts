@@ -244,6 +244,30 @@ describe('版本号三处同步', () => {
   });
 });
 
+describe('战斗界面的两处常量双轨', () => {
+  const timelineSrc = readFileSync(join(srcDir, 'ui', 'timeline.ts'), 'utf8');
+
+  /**
+   * 时序轴的宽度同时存在于源码常量与 CSS 里。
+   * 两者不一致时轴不会报错，只会让标签位置和刻度错位 ——
+   * 这种「看着只是有点歪」的问题最难被发现，所以在这里钉死。
+   */
+  it('时序轴宽度在 timeline.ts 与 style.css 里一致', () => {
+    const declared = Number(timelineSrc.match(/export const AXIS_WIDTH = (\d+);/)?.[1]);
+    expect(declared, 'timeline.ts 里找不到 AXIS_WIDTH').toBeGreaterThan(0);
+    expect(cssPx(cssRule('.ax-window'), 'width')).toBe(declared);
+  });
+
+  it('三种时序形态在手牌上也有各自的色带，且互不相同', () => {
+    const kinds = ['instant', 'deferred', 'shift'];
+    const colors = new Set<string>();
+    for (const kind of kinds) {
+      colors.add(cssProp(cssRule(`.hand-card.k-${kind}`), 'border-left-color'));
+    }
+    expect(colors.size, '手牌的形态色带重复了').toBe(3);
+  });
+});
+
 describe('两处常量双轨', () => {
   /**
    * 时序形态同时存在于 types.ts 的联合类型与 style.css 的色带规则里。

@@ -1,7 +1,7 @@
 {
   "name": "chrono-deck",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "《授时局》—— 时序卡牌 Roguelike。原创设定，零运行时依赖。",
   "type": "module",
   "license": "MIT",
