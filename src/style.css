@@ -1,0 +1,527 @@
+/*
+ * 《授时局》全局样式。
+ *
+ * 只有这一个样式表，没有 CSS 模块、没有 Tailwind、没有 CSS-in-JS。
+ * 类名扁平、按界面前缀分组：menu-* / setup-* / about-* / card-* / btn*。
+ *
+ * 两条红线，由 tests/guards.test.ts 读本文件断言：
+ *   1. 任何 font-size 不得小于 --fs-min（13.5px）。舞台会缩放到手机上，
+ *      小于这个值的字在真机上完全读不出来。
+ *   2. .stage 的宽高必须等于 src/ui/stage.ts 里的 STAGE_W / STAGE_H。
+ */
+
+:root {
+  /* 深墨蓝底 / 黄铜金强调 / 时序青（挂刻专用）/ 校正紫 */
+  --ink: #0a0e15;
+  --panel-deep: #111725;
+  --card-deep: #161e2f;
+  --card-deep-2: #1c2740;
+  --brass: #c9a227;
+  --brass-soft: #e8cf7a;
+  --chrono: #46c8bd;
+  --shift: #a982e8;
+  --ally: #6fa8e8;
+  --foe: #d4695f;
+  --txt: #e7edf7;
+  --txt-dim: #93a2b9;
+  --txt-soft: #6f7d93;
+  --line: #263149;
+  --line-soft: #1a2235;
+  --font: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+  --fs-min: 13.5px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--ink);
+  color: var(--txt);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+/*
+ * 舞台是固定逻辑尺寸 1440x720，由 main.ts 的 fitStage 等比缩放到窗口内。
+ * 所有界面都按这个尺寸设计，不用写响应式。
+ */
+.stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1440px;
+  height: 720px;
+  transform-origin: center center;
+  /* 极克制的底色处理：一层径向渐晕，让舞台读起来是一个"面"而不是贴图 */
+  background: radial-gradient(120% 120% at 50% 0%, #131b2b 0%, var(--ink) 62%);
+  overflow: hidden;
+}
+
+/* 竖屏提示：舞台是 2:1 横向设计，竖屏下等比缩放会小到看不清 */
+#rotate-hint {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+  color: var(--txt-dim);
+  font-size: 22px;
+  z-index: 50;
+}
+
+/* ==================== 通用控件 ==================== */
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--card-deep);
+  color: var(--txt);
+  font-family: var(--font);
+  font-size: 19px;
+  line-height: 1;
+  padding: 16px 30px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.14s, background 0.14s, color 0.14s;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--brass);
+  background: var(--card-deep-2);
+}
+
+.btn.primary {
+  border-color: var(--brass);
+  color: var(--brass-soft);
+  font-size: 22px;
+  padding: 19px 44px;
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: var(--line-soft);
+  color: var(--txt-dim);
+  font-size: 17px;
+  padding: 12px 22px;
+}
+
+/*
+ * 置灰规则必须排在上面三个变体之后。
+ * CSS 特异性相同时由书写顺序决定胜负，如果把它写在前头，
+ * 一个 disabled 的 .btn.primary 会照旧显示成金色 —— 界面上就成了「看着能点」，
+ * 这正是本作最不该有的状态。加 .btn.primary:disabled 是为了把特异性也提上去。
+ */
+.btn:disabled,
+.btn.primary:disabled {
+  border-color: var(--line-soft);
+  color: var(--txt-soft);
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.btn-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.hint {
+  font-size: 15.5px;
+  color: var(--txt-soft);
+  line-height: 1.7;
+}
+
+/* ==================== 标题界面 ==================== */
+
+.menu {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+}
+
+.menu-title {
+  font-size: 84px;
+  letter-spacing: 22px;
+  margin: 0;
+  color: var(--brass-soft);
+  text-indent: 22px;
+}
+
+.menu-sub {
+  font-size: 19px;
+  color: var(--txt-dim);
+  margin: 0;
+  letter-spacing: 3px;
+}
+
+.menu-tagline {
+  font-size: 16px;
+  color: var(--txt-soft);
+  margin: 0;
+  max-width: 720px;
+  text-align: center;
+  line-height: 1.8;
+}
+
+.menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  margin-top: 18px;
+}
+
+.menu-version {
+  position: absolute;
+  right: 28px;
+  bottom: 20px;
+  font-size: 13.5px;
+  color: var(--txt-soft);
+}
+
+/* ==================== 筹备界面（种子） ==================== */
+
+.setup {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 30px 44px 34px;
+  gap: 22px;
+}
+
+.setup-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 16px;
+}
+
+.setup-title {
+  font-size: 34px;
+  margin: 0;
+  color: var(--brass-soft);
+  letter-spacing: 5px;
+}
+
+.setup-body {
+  display: flex;
+  gap: 30px;
+  flex: 1;
+  min-height: 0;
+}
+
+.setup-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.setup-col.left {
+  width: 430px;
+  flex-shrink: 0;
+}
+
+.setup-col.right {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel {
+  background: var(--panel-deep);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 20px 22px;
+}
+
+.panel-label {
+  font-size: 14px;
+  color: var(--txt-soft);
+  letter-spacing: 2px;
+  margin: 0 0 12px;
+}
+
+.seed-code {
+  font-size: 40px;
+  letter-spacing: 5px;
+  color: var(--chrono);
+  margin: 0 0 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.seed-input {
+  width: 100%;
+  background: var(--card-deep);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--txt);
+  font-family: var(--font);
+  font-size: 17px;
+  padding: 13px 15px;
+  margin-bottom: 12px;
+}
+
+.seed-input:focus {
+  outline: none;
+  border-color: var(--brass);
+}
+
+.deck-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.deck-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding-right: 6px;
+}
+
+.deck-count {
+  font-size: 14px;
+  color: var(--txt-soft);
+}
+
+/* 同一滚动容器内的分段标题，用留白把两段分开 */
+.section-gap {
+  margin-top: 18px;
+}
+
+/* ==================== 刻印卡面 ==================== */
+
+/*
+ * 卡面是纯文字信息块，没有插画、没有头像、没有装饰图形。
+ * 靠左色带 + 类型标签区分三种时序形态，而不是靠图标。
+ */
+.card-row {
+  display: grid;
+  grid-template-columns: 4px 46px 1fr;
+  gap: 14px;
+  align-items: start;
+  background: var(--card-deep);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 13px 16px 14px 0;
+}
+
+.card-band {
+  align-self: stretch;
+  border-radius: 3px;
+  background: var(--chrono);
+}
+
+/*
+ * 三种形态各写一条显式规则，即使挂刻与基础色带同色也照写。
+ * 这样「形态 → 颜色」是一张完整的表，可以被守卫测试逐一核对；
+ * 基础规则只作为未知形态的兜底，两者必须一致。
+ */
+.card-row.k-deferred .card-band {
+  background: var(--chrono);
+}
+
+.card-row.k-instant .card-band {
+  background: var(--ally);
+}
+
+.card-row.k-shift .card-band {
+  background: var(--shift);
+}
+
+.card-cost {
+  font-size: 30px;
+  text-align: center;
+  color: var(--brass-soft);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.card-cost-unit {
+  display: block;
+  font-size: 13.5px;
+  color: var(--txt-soft);
+  letter-spacing: 1px;
+}
+
+.card-main {
+  min-width: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+
+.card-name {
+  font-size: 19px;
+  color: var(--txt);
+}
+
+.card-kind {
+  font-size: 13.5px;
+  color: var(--chrono);
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.card-count {
+  font-size: 14px;
+  color: var(--brass-soft);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.card-row.k-instant .card-kind {
+  color: var(--ally);
+}
+
+.card-row.k-shift .card-kind {
+  color: var(--shift);
+}
+
+.card-text {
+  font-size: 15.5px;
+  color: var(--txt-dim);
+  line-height: 1.6;
+}
+
+.card-flavor {
+  font-size: 13.5px;
+  color: var(--txt-soft);
+  margin-top: 5px;
+  line-height: 1.5;
+}
+
+/* ==================== 关于界面 ==================== */
+
+.about {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 34px 60px;
+  gap: 20px;
+}
+
+.about-title {
+  font-size: 34px;
+  margin: 0;
+  color: var(--brass-soft);
+  letter-spacing: 5px;
+}
+
+.about-body {
+  flex: 1;
+  overflow-y: auto;
+  max-width: 900px;
+}
+
+.about-h {
+  font-size: 19px;
+  color: var(--brass-soft);
+  margin: 22px 0 9px;
+}
+
+.about-p {
+  font-size: 15.5px;
+  color: var(--txt-dim);
+  line-height: 1.9;
+  margin: 0 0 9px;
+}
+
+.about-p code {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 14px;
+  color: var(--chrono);
+  background: var(--card-deep);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.about-link {
+  color: var(--chrono);
+  font-size: 15.5px;
+}
+
+/* ==================== 错误界面 ==================== */
+
+.crash {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 0 80px;
+}
+
+.crash-title {
+  font-size: 34px;
+  color: var(--foe);
+  margin: 0;
+  letter-spacing: 5px;
+}
+
+.crash-msg {
+  font-size: 15.5px;
+  color: var(--txt-dim);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  background: var(--panel-deep);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 16px 20px;
+  max-width: 900px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+/* ==================== 浮层提示 ==================== */
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 60px;
+  transform: translate(-50%, 20px);
+  background: var(--card-deep-2);
+  border: 1px solid var(--brass);
+  color: var(--txt);
+  font-size: 17px;
+  padding: 13px 26px;
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s, transform 0.18s;
+  z-index: 60;
+}
+
+#toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}

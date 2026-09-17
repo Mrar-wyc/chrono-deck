@@ -1,0 +1,30 @@
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 本机工具链（JDK + Android SDK，数 GB，CI 上自动安装）
+tools/
+
+# 本机会话数据与截图
+.zcode/
+.ui-shots/
+
+# 安全扫描工作目录（Mimosa）
+.mimosa/
+
+# APK 产物（由 CI 构建，见 Releases / Actions）
+*.apk
+
+# Android 构建中间产物
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/capture/
+android/app/src/main/assets/public/
+android/capacitor-cordova-android-plugins/
+
+# 系统杂项
+.DS_Store
+Thumbs.db
