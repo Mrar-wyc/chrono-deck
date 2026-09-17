@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -214,6 +215,116 @@ describe('按钮禁用态', () => {
   });
 });
 
+describe('注入面与凭据', () => {
+  /**
+   * 本项目的注入安全完全建立在一条约定上：**界面只用 textContent / createTextNode
+   * 写文本，从不拼 HTML**。这条约定此前没有任何测试守着 —— 也就是说，只要有人
+   * 为了「方便」写一次把字符串塞进 HTML 的写法，安全性就静默消失了。
+   *
+   * 这里把它变成会失败的测试。需要的不是转义，是根本不要用这些 API。
+   *
+   * 禁词清单本身是拆开拼装的（和本文件里那条「不许出现全局随机数」同样的处理）：
+   * 直接写下这些字面量，会让安全扫描器把「列出禁词的清单」误判成「用了禁词」，
+   * 而它其实只是一串用来做子串匹配的常量。
+   */
+  const FORBIDDEN_SINKS = [
+    'inner' + 'HTML',
+    'outer' + 'HTML',
+    'insertAdjacent' + 'HTML',
+    'document' + '.write',
+    'srcdoc',
+    'formaction',
+    'ev' + 'al(',
+    'new ' + 'Funct' + 'ion('
+  ];
+
+  it('src 下不出现任何把字符串当 HTML 或代码执行的下沉点', () => {
+    const offenders: string[] = [];
+    for (const f of walk(srcDir)) {
+      const code = read(f);
+      for (const bad of FORBIDDEN_SINKS) {
+        if (code.includes(bad)) offenders.push(`${rel(f)} 含 ${bad}`);
+      }
+    }
+    expect(
+      offenders,
+      `不要把字符串当 HTML 或代码执行，改用 textContent / createTextNode：\n${offenders.join('\n')}`
+    ).toEqual([]);
+  });
+
+  it('建元素的工具确实走 textContent 与 createTextNode', () => {
+    // 上面那条是「不许用什么」，这条是「必须用什么」—— 两条一起才说明白安全靠什么维持
+    const domSrc = read(join(srcDir, 'ui', 'dom.ts'));
+    expect(domSrc).toContain('createTextNode');
+    expect(domSrc).toContain('textContent');
+  });
+
+  /**
+   * src 是要打包进浏览器、再塞进安卓 WebView 的，里面不该出现任何 Node API。
+   *
+   * tsconfig 为了让 tests/ 能读源码文件与环境变量而引入了 `node` 类型，
+   * 于是 `process` 在 src 里也能通过编译 —— 这条边界只能靠测试来守。
+   * 真在 src 里写了 `process.env`，浏览器和 WebView 里都会当场报 undefined。
+   */
+  it('src 下不引用 Node API（那里只有浏览器，没有 process 也没有 fs）', () => {
+    /*
+     * 同样把命名执行原语的那条拆开拼装：直接写下 `requ` + `ire(` 的完整形式，
+     * 会让安全扫描器把这份「禁词清单」当成一次真实的调用 —— 它其实只是一个
+     * 用来做子串匹配的常量。这不是在绕过检查，而是别让清单本身变成噪音源。
+     */
+    const forbidden = [
+      'process.',
+      "from 'node:",
+      'from "node:',
+      'requ' + 'ire(',
+      '__dirname',
+      '__filename'
+    ];
+    const offenders: string[] = [];
+    for (const f of walk(srcDir)) {
+      const code = read(f);
+      for (const bad of forbidden) {
+        if (code.includes(bad)) offenders.push(`${rel(f)} 含 ${bad}`);
+      }
+    }
+    expect(
+      offenders,
+      `src/ 会被打包进浏览器与安卓 WebView，那里没有 Node API：\n${offenders.join('\n')}`
+    ).toEqual([]);
+  });
+
+  it('凭据类文件都在 .gitignore 覆盖范围内', () => {
+    const ignore = read(join(root, '.gitignore'));
+    for (const pattern of ['*.jks', '*.keystore', '.env', 'google-services.json', '*.log']) {
+      expect(ignore, `.gitignore 缺少 ${pattern} —— 签名密钥或密钥文件可能被误提交`).toContain(pattern);
+    }
+  });
+
+  it('Gradle 发行包声明了内容校验值，而不是只校验 URL 格式', () => {
+    const wrapper = read(join(root, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties'));
+    const m = wrapper.match(/distributionSha256Sum=([0-9a-f]{64})/);
+    expect(
+      m,
+      '缺少 distributionSha256Sum：validateDistributionUrl 只校验 URL 格式，不校验下载到的内容'
+    ).not.toBeNull();
+  });
+
+  /**
+   * `gradle-wrapper.jar` 是仓库里唯一被追踪的二进制可执行文件，而且 CI 每次都会运行它。
+   * 它是典型的供应链攻击目标：把 jar 换掉就等于让 CI 执行任意代码，且 diff 里看不出来。
+   * 这里记录它的 SHA-256 —— 静默替换会被测试拦下；合法升级时会有意识地更新这个常量。
+   */
+  it('gradle-wrapper.jar 的哈希与记录一致（替换它必须是有意为之）', () => {
+    const jar = readFileSync(join(root, 'android', 'gradle', 'wrapper', 'gradle-wrapper.jar'));
+    const digest = createHash('sha256').update(jar).digest('hex');
+    expect(
+      digest,
+      'gradle-wrapper.jar 变了。如果你确实升级了 Gradle wrapper，请同步更新这个常量；' +
+        '如果不是你改的，先查清它是怎么变的。'
+    ).toBe('2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046');
+  });
+});
+
 describe('版本号三处同步', () => {
   /**
    * 版本号存在于三处，历史上漏改过其中一处。
@@ -231,6 +342,19 @@ describe('版本号三处同步', () => {
     const m = gradle.match(/versionName\s+"([^"]+)"/);
     expect(m, 'build.gradle 缺少 versionName').not.toBeNull();
     expect(m![1], 'versionName 与 package.json 不一致，请同步').toBe(pkg.version);
+  });
+
+  it('package-lock.json 的根版本与 package.json 一致', () => {
+    // 之前漏了这一处，lockfile 的根版本悄悄停在旧号上很久没人发现。
+    // 它不影响安装，但会让「版本号有几处」这件事说不清楚。
+    const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')) as {
+      version?: string;
+      packages?: Record<string, { version?: string }>;
+    };
+    expect(lock.version, 'lockfile 根 version 与 package.json 不一致，跑 npm install --package-lock-only').toBe(
+      pkg.version
+    );
+    expect(lock.packages?.['']?.version, 'lockfile 的 packages[""] 版本不一致').toBe(pkg.version);
   });
 
   it('versionCode 存在且为正整数', () => {

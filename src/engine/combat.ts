@@ -135,6 +135,19 @@ function makeUnit(
 }
 
 export function createBattle(input: BattleInput): Battle {
+  /*
+   * 零敌人的战斗必须当场报错，不能开着打。
+   * 否则 checkEnd 里的 `every(!alive)` 对空数组恒为真，一开局就被判成胜利 ——
+   * 玩家侧有 main.ts 的前置检查挡着，但引擎层留着这个陷阱迟早会有人踩
+   * （诊断工具就踩过一次：写错遭遇名得到一份「一步就赢」的假战报）。
+   */
+  if (input.enemies.length === 0) {
+    throw new Error('战斗至少需要一个敌人：检查遭遇配表是否正确引用，或 buildBattleInput 是否收到了合法遭遇 id');
+  }
+  if (input.deck.length === 0) {
+    throw new Error('战斗至少需要一张刻印：检查牌组装配');
+  }
+
   const names = labelEnemies(input.enemies);
   const state: State = {
     rng: createRng(input.seed),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cardOr } from '../src/content';
+import { ENCOUNTERS } from '../src/content/enemies';
 import { createBattle } from '../src/engine/combat';
 import { greedyPolicy } from '../src/engine/policy';
 import { buildBattleInput } from '../src/run/battle-setup';
@@ -15,8 +16,35 @@ import { ALL_EXTRA } from './bot';
  * 输出默认只打到控制台，不断言任何平衡结论 —— 它是个观察工具，不是测试。
  */
 
-const SEED = Number(process.env.DIAG_SEED ?? 7);
-const ENCOUNTER = process.env.DIAG_ENCOUNTER ?? 'e_elite';
+/**
+ * 环境变量必须先校验再使用。
+ *
+ * 它以前是直接流进引擎的：`Number("abc")` 会静默变成种子 0，写错遭遇名会静默
+ * 变成「零敌人」的一场空仗 —— 而空敌人列表在引擎里会被判为胜利，于是诊断工具
+ * 会打印一份「一步就赢」的假战报。校验之后这两种写法都会当场报错并列出合法值。
+ */
+function requireEnvInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) {
+    throw new Error(`${name}=${raw} 不是整数。请传一个整数种子，例如 ${name}=7`);
+  }
+  return n;
+}
+
+function requireEnvEncounter(name: string, fallback: string): string {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  if (!ENCOUNTERS.some((e) => e.id === raw)) {
+    const valid = ENCOUNTERS.map((e) => e.id).join(', ');
+    throw new Error(`${name}=${raw} 不是合法遭遇 id。可用的有：${valid}`);
+  }
+  return raw;
+}
+
+const SEED = requireEnvInt('DIAG_SEED', 7);
+const ENCOUNTER = requireEnvEncounter('DIAG_ENCOUNTER', 'e_elite');
 
 describe('单局诊断', () => {
   it(`打印 ${ENCOUNTER} / 种子 ${SEED} 的逐回合数字`, () => {

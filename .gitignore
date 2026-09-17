@@ -15,6 +15,27 @@ tools/
 # APK 产物（由 CI 构建，见 Releases / Actions）
 *.apk
 
+# ==================== 凭据与密钥：绝不提交 ====================
+# 签名密钥。目前还没有 release 签名配置，但 android/app/build.gradle 已有 release 块 ——
+# 第一个生成密钥的人如果没被忽略规则拦住，就会把自己的签名私钥提交上去。
+# 详见 CONTRIBUTING.md 的「凭据与签名」
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+
+# 环境变量与本地配置
+.env
+.env.*
+!.env.example
+android/app/google-services.json
+
+# 日志
+*.log
+npm-debug.log*
+
 # Android 构建中间产物
 android/.gradle/
 android/build/

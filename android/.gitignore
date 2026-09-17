@@ -53,16 +53,19 @@ captures/
 .idea/navEditor.xml
 
 # Keystore files
-# Uncomment the following lines if you do not want to check your keystore files in.
-#*.jks
-#*.keystore
+# 签名私钥绝不能进仓库。上游模板把这两行注释掉了（默认允许提交），这里打开。
+# 根目录 .gitignore 也有一份，两处都留着是为了让人在 android/ 下工作时也看得到。
+*.jks
+*.keystore
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
 .cxx/
 
 # Google Services (e.g. APIs or Firebase)
-# google-services.json
+# 这个文件含 Firebase API key。项目目前不用 Firebase，
+# 但 android/app/build.gradle 会在它存在时自动应用 Google Services 插件 —— 所以必须挡住。
+google-services.json
 
 # Freeline
 freeline.py

@@ -91,6 +91,42 @@ npm run typecheck && npm test
 
 如果你改了界面，除了跑测试，还请用浏览器实际走一遍并截图自查——单元测试覆盖不了视觉与手感。`npx vite --port 5174 --strictPort` 起一个自查用的服务器。
 
+## 凭据与签名
+
+**这个仓库里不应出现任何凭据。** 以下几类文件已经被 `.gitignore` 挡住，请不要用 `git add -f` 绕过：
+
+| 文件 | 为什么不能提交 |
+|---|---|
+| `*.jks` / `*.keystore` / `*.p12` / `*.pfx` / `*.pem` / `*.key` | 签名私钥。拿到它就能冒名发布这个应用的更新 |
+| `.env` / `.env.*` | 环境变量里的密钥。要写示例请用 `.env.example`，只放键名不放值 |
+| `android/app/google-services.json` | 含 Firebase API key；`app/build.gradle` 会在它存在时自动应用 Google Services 插件 |
+| `android/local.properties` | 本机 SDK 路径，与本机绑定 |
+| `*.log` | 日志常带路径与 token |
+
+自检一条命令就够：
+
+```bash
+git status --porcelain          # 提交前看一眼有没有意外混进来的文件
+git check-ignore -v <文件>       # 确认某个文件确实被忽略了
+```
+
+### 发布签名（目前还没有）
+
+现在 CI 只构建 **debug** APK，用 Android 的默认调试密钥签名，不需要任何凭据 —— 这是刻意的：仓库里不存在任何密钥，也就没有密钥可泄露。
+
+正式发布要换 release 签名时，密钥**不进仓库**，走 CI 的 encrypted secrets：
+
+1. 本地生成密钥库，**存在仓库之外**（例如 `~/.android-keys/`），并单独备份 —— 丢了就再也无法给已发布的包发更新
+2. `android/app/build.gradle` 里的 `signingConfigs.release` 从环境变量读密码，而不是写在文件里
+3. 密码放进 GitHub 的 Actions secrets（`Settings → Secrets and variables → Actions`），在 workflow 里用 `${{ secrets.XXX }}` 引用
+4. 这一步请连带读一遍 `.github/workflows/android-build.yml` 里的权限声明：只有需要写仓库的操作才给 `contents: write`
+
+### 依赖
+
+依赖只从 npm registry 安装，`package-lock.json` 必须提交（CI 用的是 `npm ci`，靠它做完整性校验）。
+
+**不要引入 git 地址或 tarball 地址的依赖**：npm 只对 registry 来源的包跳过 `prepare` 脚本，换成 git 依赖就会让第三方代码在 `npm ci` 时执行。
+
 ## 提交
 
 - 一个提交只做一件事

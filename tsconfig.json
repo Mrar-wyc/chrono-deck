@@ -12,7 +12,15 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["vite/client"]
+    /*
+     * `node` 类型是给 tests/ 用的（守卫测试要读源码文件、诊断工具要读环境变量）。
+     * 它也让 src/ 能看见 Node 全局 —— 这是刻意的取舍：边界交给守卫测试去守
+     * （见 guards.test.ts 的「src 不得引用 Node API」），比拆两份 tsconfig 简单。
+     *
+     * 注意它必须显式声明：此前能通过类型检查是搭了 vitest 传递依赖的便车，
+     * 那层依赖一升级（vitest 3 → 5）就断了，`process` 与 `node:fs` 当场失联。
+     */
+    "types": ["vite/client", "node"]
   },
   "include": ["src", "tests", "capacitor.config.ts"]
 }

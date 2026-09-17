@@ -1,20 +1,29 @@
 name: CI
 
+# 所有 uses 都钉到完整 commit SHA，而不是浮动 tag（如 @v7）。
+# 浮动 tag 是可被上游随时重指的可变引用 —— 一旦它被指向别的 commit，
+# 我们要跑的就是别人写的代码了，而 workflow 文件本身不会有任何变化。
+# 升级时请连同注释里的版本号一起改：SHA 才是这一行真正的约束，版本号只是给人看的。
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
 
+# 这个工作流只需要读仓库。不显式声明就会继承仓库默认的 token 权限，
+# 那是按最宽松的假设给的 —— 最小权限原则要求在这里收紧。
+permissions:
+  contents: read
+
 jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
